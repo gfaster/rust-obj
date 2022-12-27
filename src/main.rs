@@ -1,6 +1,7 @@
 use std::{io, convert::TryInto};
 mod mesh;
 
+#[derive(Debug)]
 enum ObjEntry {
     Vertex(mesh::Vec3),
     VertexNormal(mesh::Vec3),
@@ -69,11 +70,15 @@ fn parse_face(tokens: Vec<&str>) -> Option<ObjEntry> {
 
     // puts the line into a nice array, and finds the data it must specify
     for (i, vert) in attributes_raw.enumerate() {
-        let mut attrs_vec: Vec<Option<u32>> = vert.map(|x| x.parse().ok())
+        let mut attrs_vec: Vec<Option<u32>> = vert
+            .map(|x| x.parse::<u32>().ok())
+            .map(|x| x.map_or(None, |x| Some(x - 1)))
             .collect::<Vec<Option<u32>>>();
+
         attrs_vec.resize(3, None);
+
         let attrs: [Option<u32>; 3] = attrs_vec
-            .try_into().expect("Vector should be fixed size, but somehow isn't");
+            .try_into().expect("Vector should be fixed size");
 
         match attrs {
             [Some(_), None,    None] => types[i] = VertexDataSpecified::Pos,
@@ -82,12 +87,13 @@ fn parse_face(tokens: Vec<&str>) -> Option<ObjEntry> {
             [Some(_), Some(_), Some(_)] => types[i] = VertexDataSpecified::PosTexNorm,
             _ => return None
         };
-        // I feel like there should be a cleaner way of doing this
-        values.extend(attrs.iter().filter_map(|x: &Option<u32>| -> Option<u32> {*x}));
+        values.extend(attrs.iter().filter_map(|x| *x));
     };
 
     // this super elegant line checking to make sure types are the same by
-    // https://github.com/bugaevc found via https://sts10.github.io/2019/06/06/is-all-equal-function.html
+    // https://github.com/bugaevc found via 
+    // https://sts10.github.io/2019/06/06/is-all-equal-function.html
+    // This line is why we need those derives on VertexDataSpecified
     if !types.windows(2).all(|w: &[VertexDataSpecified]| w[0] as u32 == w[1] as u32) {
         return None
     };
@@ -101,7 +107,21 @@ fn parse_face(tokens: Vec<&str>) -> Option<ObjEntry> {
 }
 
 
+
 fn main() {
-    read_line("a b c #daef");
-    read_line("# oh boy comment");
+    let input = io::stdin();
+    let mut line = String::new();
+    while input.read_line(&mut line).is_ok() {
+        print!("{} => ", line);
+
+        let res = read_line(line.as_str());
+
+        match res {
+            None => println!("---"),
+            Some(x) => println!("{:?}", x)
+        };
+
+        line.clear();
+    }
+    
 }

@@ -1,28 +1,29 @@
 
 
+#[derive(Debug)]
 pub struct Vec3 {
-    x: f32,
-    y: f32,
-    z: f32
+    pub x: f32,
+    pub y: f32,
+    pub z: f32
 }
 
+#[derive(Debug)]
 pub struct TextureCoord {
-    u: f32,
-    v: f32
+    pub u: f32,
+    pub v: f32
 }
 
-struct Vertex<'a> {
-    position: &'a Vec3,
-    normal: Option<&'a Vec3>,
-    binormal: Option<&'a Vec3>,
-    tangent: Option<&'a Vec3>,
-    albedo: Option<&'a TextureCoord>,
+pub struct Vertex<'a> {
+    pub position: &'a Vec3,
+    pub normal: Option<&'a Vec3>,
+    pub binormal: Option<&'a Vec3>,
+    pub tangent: Option<&'a Vec3>,
+    pub albedo: Option<&'a TextureCoord>,
 }
 
-struct Tri<'a> {
-}
-
-struct MeshConnections<'a> {
+/// This isn't actually an index buffer to take advantage of type safety, but it 
+/// formatted in effectively the same way
+pub struct IndexBuffer<'a> {
     buffer: &'a Vec<&'a Vertex<'a>>
 }
 
