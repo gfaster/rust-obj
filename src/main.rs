@@ -122,21 +122,56 @@ fn get_pos_from_objentry(o: &ObjEntry) -> [u32; 3] {
     }
 }
 
+fn get_norm_from_objentry(o: &ObjEntry) -> [u32; 3] {
+    match o {
+        ObjEntry::TriPN(x) => [x[1], x[3], x[5]],
+        ObjEntry::TriPTN(x) => [x[2], x[5], x[8]],
+        _ => panic!("this function should only be called on face line with a normal, but it was called on {:?}", o)
+    }
+}
+
+fn get_tex_from_objentry(o: &ObjEntry) -> [u32; 3] {
+    match o {
+        ObjEntry::TriPT(x) => [x[1], x[3], x[5]],
+        ObjEntry::TriPTN(x) => [x[1], x[4], x[7]],
+        _ => panic!("this function should only be called on face line with a uv, but it was called on {:?}", o)
+    }
+}
+
 
 fn main() {
     let input = io::stdin();
     let mut line = String::new();
-    let mut positions: Vec<mesh::Vec3> = vec![];
-    let mut normals: Vec<mesh::Vec3> = vec![];
-    let mut uvs: Vec<mesh::TextureCoord> = vec![];
+
+    let mut objmesh = mesh::MeshDataBasic::new();
+    
     while input.read_line(&mut line).is_ok() {
 
         match read_line(line.as_str()) {
             None => (),
-            Some(x) => match x {
-                ObjEntry::Vertex(v) => positions.push(v),
+            Some(x) => {
+                match x {
+                    ObjEntry::Vertex(v) => objmesh.add_vertex_pos(v),
+                    ObjEntry::VertexNormal(vn) => objmesh.add_vertex_normal(vn),
+                    ObjEntry::MapTexture(t) => objmesh.add_vertex_uv(t),
+                    ObjEntry::TriP(_) => objmesh.add_tri_p(
+                        get_pos_from_objentry(&x)
+                    ),
+                    ObjEntry::TriPT(_) => objmesh.add_tri_pt(
+                        get_pos_from_objentry(&x),
+                        get_tex_from_objentry(&x)
+                    ),
+                    ObjEntry::TriPN(_) => objmesh.add_tri_pn(
+                        get_pos_from_objentry(&x),
+                        get_norm_from_objentry(&x)
+                    ),
+                    ObjEntry::TriPTN(_) => objmesh.add_tri_ptn(
+                        get_pos_from_objentry(&x),
+                        get_tex_from_objentry(&x),
+                        get_norm_from_objentry(&x)
+                    )
+                };
             }
-
         };
 
         line.clear();

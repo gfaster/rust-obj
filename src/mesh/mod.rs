@@ -76,20 +76,40 @@ pub struct TextureCoord {
 }
 
 
-pub struct VertexBasic<'a> {
+struct VertexIndexed {
+    pos: u32,
+    norm: Option<u32>,
+    tex: Option<u32>
+}
+
+struct VertexDeindex<'a> {
     pos: &'a Vec3,
     norm: Option<&'a Vec3>,
     tex: Option<&'a TextureCoord>
 }
 
-pub struct MeshDataBasic<'a> {
+pub struct Vertex {
+    pos: Vec3,
+    normal: Vec3,
+    binormal: Vec3,
+    tangent: Vec3,
+    tex: TextureCoord
+}
+
+pub struct MeshDataBasic {
     v: Vec<Vec3>,
     vn: Vec<Vec3>,
     vt: Vec<TextureCoord>,
-    f: Vec<VertexBasic<'a>>
+    f: Vec<VertexIndexed>
 }
 
-impl<'a> MeshDataBasic<'a> {
+pub enum MeshError {
+    VertexPositionIndexInvalid {tried: u32, max: u32},
+    VertexNormalIndexInvalid {tried: u32, max: u32},
+    VertexTextureIndexInvalid {tried: u32, max: u32},
+}
+
+impl MeshDataBasic {
     pub fn new() -> Self {
         MeshDataBasic { 
             v: vec![],
@@ -99,66 +119,57 @@ impl<'a> MeshDataBasic<'a> {
         }
     }
 
+    /// adds a new vertex position, and returns the index
+    /// this function is unaware of duplicates - it's up 
+    /// to the caller to be efficent with memory
     pub fn add_vertex_pos(&mut self, pos: Vec3) -> usize {
         self.v.push(pos);
         self.v.len() - 1
     }
 
+    /// adds a new vertex normal, and returns the index
+    /// this function is unaware of duplicates - it's up 
+    /// to the caller to be efficent with memory
     pub fn add_vertex_normal(&mut self, norm: Vec3) -> usize {
         self.vn.push(norm);
         self.vn.len() - 1
     } 
 
+    /// adds a new vertex texture coordinate, and returns the index
+    /// this function is unaware of duplicates - it's up 
+    /// to the caller to be efficent with memory
     pub fn add_vertex_uv(&mut self, uv: TextureCoord) -> usize {
         self.vt.push(uv);
         self.vt.len() - 1
     } 
 
-    pub fn add_tri_p(&'a mut self, pos_idx: [usize; 3]) {
-        for i in 0..3 {
-            self.f.push( 
-                VertexBasic {
-                    pos: &self.v[pos_idx[i]],
-                    norm: None,
-                    tex: None
-                }
-            );
-        }
+    /// gets references to the actual Vec3 comprising verticies
+    /// returns a MeshError if any index is out of bounds
+    fn deref_vertex(&self, vtx: &VertexIndexed) -> Result<VertexDeindex, MeshError> {
+        Ok (VertexDeindex { 
+            pos: self.v.get(vtx.pos as usize)
+                .ok_or_else(|| MeshError::VertexPositionIndexInvalid { tried: vtx.pos, max: (self.v.len() - 1) as u32 })?,
+            norm: match vtx.norm {
+                Some(vn) => Some(self.vn.get(vn as usize)
+                    .ok_or_else(|| MeshError::VertexNormalIndexInvalid { tried: vn, max: (self.vn.len() - 1) as u32})?),
+                None => None
+            },
+            tex: match vtx.tex {
+                Some(vt) => Some(self.vt.get(vt as usize)
+                    .ok_or_else(|| MeshError::VertexTextureIndexInvalid { tried: vt, max: (self.vt.len() - 1) as u32})?),
+                None => None
+            }
+        })
     }
 
-    pub fn add_tri_pt(&'a mut self, pos_idx: [usize; 3], tex_idx: [usize; 3]) {
-        for i in 0..3 {
-            self.f.push( 
-                VertexBasic {
-                    pos: &self.v[pos_idx[i]],
-                    norm: None,
-                    tex: Some(&self.vt[tex_idx[i]])
-                }
-            );
-        }
+
+    pub fn add_tri(&mut self, vtx: VertexIndexed) -> Result<(), MeshError> {
+        let _ = self.deref_vertex(&vtx)?;
+
+        self.f.push(vtx);
+
+        Ok(())
     }
 
-    pub fn add_tri_pn(&'a mut self, pos_idx: [usize; 3], norm_idx: [usize; 3]) {
-        for i in 0..3 {
-            self.f.push( 
-                VertexBasic {
-                    pos: &self.v[pos_idx[i]],
-                    norm: Some(&self.vn[norm_idx[i]]),
-                    tex: None
-                }
-            );
-        }
-    }
 
-    pub fn add_tri_ptn(&'a mut self, pos_idx: [usize; 3], norm_idx: [usize; 3], tex_idx: [usize; 3]) {
-        for i in 0..3 {
-            self.f.push( 
-                VertexBasic {
-                    pos: &self.v[pos_idx[i]],
-                    norm: Some(&self.vn[norm_idx[i]]),
-                    tex: Some(&self.vt[tex_idx[i]]),
-                }
-            );
-        }
-    }
 }
