@@ -106,19 +106,37 @@ fn parse_face(tokens: Vec<&str>) -> Option<ObjEntry> {
     }
 }
 
+fn calculate_normal(v: [&mesh::Vec3; 3]) -> mesh::Vec3 {
+    let edge1 = v[0].sub(&v[1]);
+    let edge2 = v[1].sub(&v[2]);
+    edge1.cross(&edge2).normalized().unwrap()
+}
+
+fn get_pos_from_objentry(o: &ObjEntry) -> [u32; 3] {
+    match o {
+        ObjEntry::TriP(x) => *x,
+        ObjEntry::TriPT(x) => [x[0], x[2], x[4]],
+        ObjEntry::TriPN(x) => [x[0], x[2], x[4]],
+        ObjEntry::TriPTN(x) => [x[0], x[3], x[6]],
+        _ => panic!("this function should only be called on face line, but it was called on {:?}", o)
+    }
+}
 
 
 fn main() {
     let input = io::stdin();
     let mut line = String::new();
+    let mut positions: Vec<mesh::Vec3> = vec![];
+    let mut normals: Vec<mesh::Vec3> = vec![];
+    let mut uvs: Vec<mesh::TextureCoord> = vec![];
     while input.read_line(&mut line).is_ok() {
-        print!("{} => ", line);
 
-        let res = read_line(line.as_str());
+        match read_line(line.as_str()) {
+            None => (),
+            Some(x) => match x {
+                ObjEntry::Vertex(v) => positions.push(v),
+            }
 
-        match res {
-            None => println!("---"),
-            Some(x) => println!("{:?}", x)
         };
 
         line.clear();
