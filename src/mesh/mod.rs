@@ -54,6 +54,14 @@ impl Vec3 {
         }.sqrt()
     }
 
+    pub fn scale(&self, scale: f32) -> Vec3 {
+        Vec3 { 
+            x: self.x * scale, 
+            y: self.y * scale, 
+            z: self.z * scale 
+        }
+    }
+
     pub fn normalized(&self) -> Result<Vec3, &str> {
         let sq_mag = self.sq_mag();
         if sq_mag == 0.0 {
@@ -67,6 +75,123 @@ impl Vec3 {
             z: self.z / mag 
         })
     }
+
+
+    pub fn orthoginal(&self) -> Result<Vec3, &str> {
+        let sq_mag = self.sq_mag();
+        if sq_mag == 0.0 {
+            return Err("Cannot find a vector orthoginal to the zero vector");
+        }
+        let tangent = {
+            // will be colinear when self = k * <1, -1, 1>
+            let v1 = Vec3{x: -self.z, y: self.x, z: self.y};
+            let t = self.cross(&v1);
+            if t.sq_mag() < sq_mag * 0.02 {
+                let v2 = Vec3{x: -self.y, y: self.z, z: self.x};
+                self.cross(&v2)
+            } else {
+                t
+            }
+        };
+        Ok(tangent)
+    }
+}
+
+/// row major currently, want to switch to column major eventually
+pub struct Mat3 {
+    d: [f32; 9]
+}
+
+impl Mat3 {
+    pub fn new_from_columns(v1: &Vec3, v2: &Vec3, v3: &Vec3) -> Mat3 {
+        Mat3 { d: [
+            v1.x, v2.x, v1.x,
+            v1.y, v2.y, v1.y,
+            v1.z, v2.z, v1.z
+        ] }
+    }
+
+    pub fn basis_from_up(positive_z: &Vec3) -> Mat3 {
+        let tangent = positive_z.orthoginal().unwrap();
+        let bitangent = positive_z.cross(&tangent);
+        Self::new_from_columns(&tangent, &bitangent, positive_z)
+    }
+
+    fn get_column(&self, idx: usize) -> Vec3 {
+        Vec3 { 
+            x: self.d[0 + idx],
+            y: self.d[3 + idx],
+            z: self.d[6 + idx]
+        }
+    }
+
+    fn get_row(&self, idx: usize) -> Vec3 {
+        Vec3 { 
+            x: self.d[0 + idx * 3],
+            y: self.d[1 + idx * 3],
+            z: self.d[2 + idx * 3]
+        }
+    }
+
+    pub fn apply_to_vec(&self, rhs: &Vec3) -> Vec3 {
+        Vec3 { 
+            x: self.get_row(0).dot(&rhs),
+            y: self.get_row(1).dot(&rhs),
+            z: self.get_row(2).dot(&rhs)
+        }
+    }
+
+    pub fn apply_to_mat(&self, rhs: &Mat3) -> Mat3 {
+        Self::new_from_columns(
+            &self.apply_to_vec(&rhs.get_column(0)),
+            &self.apply_to_vec(&rhs.get_column(1)),
+            &self.apply_to_vec(&rhs.get_column(2))
+        )
+    }
+
+
+    pub fn det(&self) -> f32 {
+        let s = &self.d;
+        let d0 = s[0] * {
+            s[1 * 3 + 1] * s[2 * 3 + 2] -
+            s[1 * 3 + 2] * s[2 * 3 + 1]
+        };
+        let d1 = s[1] * {
+            s[1 * 3 + 0] * s[2 * 3 + 2] -
+            s[1 * 3 + 2] * s[2 * 3 + 0]
+        };
+        let d2 = s[2] * {
+            s[1 * 3 + 0] * s[2 * 3 + 1] -
+            s[1 * 3 + 1] * s[2 * 3 + 0]
+        };
+
+        d0 - d1 + d2
+    }
+
+    pub fn inverse(&self) -> Option<Mat3> {
+        let det = self.det();
+        if det == 0.0 {
+            return None
+        };
+
+        let m = &self.d;
+        let invdet = 1.0/det;
+
+        // adopted from https://stackoverflow.com/a/18504573/7487237
+        Some(Mat3 { d:[
+            (m[1 * 3 + 1] * m[2 * 3 + 2] - m[2 * 3 + 1] * m[1 * 3 + 2]) * invdet,
+            (m[0 * 3 + 2] * m[2 * 3 + 1] - m[0 * 3 + 1] * m[2 * 3 + 2]) * invdet,
+            (m[0 * 3 + 1] * m[1 * 3 + 2] - m[0 * 3 + 2] * m[1 * 3 + 1]) * invdet,
+            (m[1 * 3 + 2] * m[2 * 3 + 0] - m[1 * 3 + 0] * m[2 * 3 + 2]) * invdet,
+            (m[0 * 3 + 0] * m[2 * 3 + 2] - m[0 * 3 + 2] * m[2 * 3 + 0]) * invdet,
+            (m[1 * 3 + 0] * m[0 * 3 + 2] - m[0 * 3 + 0] * m[1 * 3 + 2]) * invdet,
+            (m[1 * 3 + 0] * m[2 * 3 + 1] - m[2 * 3 + 0] * m[1 * 3 + 1]) * invdet,
+            (m[2 * 3 + 0] * m[0 * 3 + 1] - m[0 * 3 + 0] * m[2 * 3 + 1]) * invdet,
+            (m[0 * 3 + 0] * m[1 * 3 + 1] - m[1 * 3 + 0] * m[0 * 3 + 1]) * invdet
+        ]})
+
+    }
+
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -91,7 +216,7 @@ struct VertexDeindex<'a> {
 pub struct Vertex {
     pos: Vec3,
     normal: Vec3,
-    binormal: Vec3,
+    bitangent: Vec3,
     tangent: Vec3,
     tex: TextureCoord
 }
@@ -103,10 +228,13 @@ pub struct MeshDataBasic {
     f: Vec<VertexIndexed>
 }
 
+#[derive(Debug)]
 pub enum MeshError {
     VertexPositionIndexInvalid {tried: u32, max: u32},
     VertexNormalIndexInvalid {tried: u32, max: u32},
     VertexTextureIndexInvalid {tried: u32, max: u32},
+    TriangleIndexInvalid {tried: u32, max: u32},
+    TriangleVertexIndexInvalid {tried: u32}
 }
 
 impl MeshDataBasic {
@@ -163,7 +291,12 @@ impl MeshDataBasic {
     }
 
 
-    pub fn add_tri(&mut self, vtx: VertexIndexed) -> Result<(), MeshError> {
+    /// add a single vertex to the index buffer
+    /// use of the function is discuraged because 
+    /// in the case of failure part way through 
+    /// adding a polygon, the buffer will have been
+    /// already updated
+    pub fn add_tri_vertex(&mut self, vtx: VertexIndexed) -> Result<(), MeshError> {
         let _ = self.deref_vertex(&vtx)?;
 
         self.f.push(vtx);
@@ -171,5 +304,112 @@ impl MeshDataBasic {
         Ok(())
     }
 
+    /// adds a tri to the index buffer
+    pub fn add_tri(&mut self, vtxs: [VertexIndexed; 3]) -> Result<(), MeshError> {
+        // this is our validation, if the triangle is invalid, we don't want 
+        // to have to attempt state rollback
+        let _ = vtxs.iter()
+            .map(|vtx| self.deref_vertex(vtx))
+            .collect::<Result<Vec<_>,_>>()?;
 
+        vtxs.iter()
+            .map(|vtx| self.f.push(*vtx));
+        Ok(())
+    }
+
+    fn deref_tri_vtx(&self, tri_idx: usize, tri_vtx_idx: u8) -> Result<VertexDeindex, MeshError> {
+        if tri_vtx_idx > 2 {
+            return Err(MeshError::TriangleVertexIndexInvalid { tried: tri_vtx_idx as u32})
+        };
+
+        let vtx_idx = tri_idx * 3 + tri_vtx_idx as usize;
+        self.deref_vertex(self.f.get(tri_idx * 3)
+            .ok_or_else(|| MeshError::TriangleIndexInvalid { 
+                tried: tri_idx as u32,
+                max: self.f.len() as u32 / 3 
+            })?)
+    }
+
+    fn verticies_from_tri_idx(&self, idx: usize) -> Result<[VertexDeindex; 3], MeshError> {
+        Ok([
+            self.deref_tri_vtx(idx, 0)?,
+            self.deref_tri_vtx(idx, 1)?,
+            self.deref_tri_vtx(idx, 2)?
+        ])
+    }
+
+    /// calculates the normal for the triangle at tri_idx
+    /// assumes a clockwise winding order
+    fn calculate_tri_normal(&self, tri_idx: usize) -> Result<Vec3, MeshError> {
+        let vtxs = self.verticies_from_tri_idx(tri_idx)?;
+        let edge1 = vtxs[0].pos.sub(vtxs[1].pos);
+        let edge2 = vtxs[0].pos.sub(vtxs[2].pos);
+        Ok(edge1.cross(&edge2))
+    }
+
+
+    pub fn get_vertex(&self, idx: usize) -> Result<Vertex, MeshError> {
+        let tri_idx = (idx - (idx % 3)) * 3;
+        let tri_vertices = self.verticies_from_tri_idx(tri_idx)?;
+        let p = tri_vertices[idx % 3];
+        let p1 = tri_vertices[(idx + 1) % 3];
+        let p2 = tri_vertices[(idx + 2) % 3];
+
+
+        let normal = match p.norm {
+            None => self.calculate_tri_normal(tri_idx)?,
+            Some(n) => *n
+        };
+
+        let basis = Mat3::basis_from_up(&normal);
+        let b_tangent = basis.get_column(0);
+        let b_bitangent = basis.get_column(1);
+
+        Ok(
+            Vertex { 
+                pos: *p.pos,
+                normal: normal,
+                bitangent: b_bitangent,
+                tangent: b_tangent,
+                tex: *p.tex.unwrap()
+            }
+        )
+    }
+}
+
+pub struct MeshEdgeIterator<'a> {
+    mesh: &'a MeshDataBasic,
+    tri_index: usize,
+    vtx_index: usize
+}
+
+impl<'a> Iterator for MeshEdgeIterator<'a> {
+    type Item = Edge<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if 3 * self.tri_index >= self.mesh.f.len() {
+            return None;
+        };
+        let ret = Edge {
+            start: &self.mesh.get_vertex(self.tri_index + self.vtx_index).unwrap(),
+            end: &self.mesh.get_vertex(self.tri_index + ((self.vtx_index  + 1 ) % 3)).unwrap(),
+        };
+
+        self.vtx_index = (self.vtx_index + 1) % 3;
+        if self.vtx_index == 0 {
+            self.tri_index += 1;
+        }
+
+        Some(ret)
+    }
+}
+
+pub struct Edge<'a> {
+    pub start: &'a Vertex,
+    pub end: &'a Vertex
+}
+
+pub struct Tri<'a> {
+    v1: &'a Vertex,
+    v2: &'a Vertex,
+    v3: &'a Vertex
 }
