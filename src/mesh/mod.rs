@@ -2,7 +2,8 @@
 
 
 
-#[derive(Debug, PartialEq, PartialOrd)]
+
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
@@ -105,9 +106,9 @@ pub struct Mat3 {
 impl Mat3 {
     pub fn new_from_columns(v1: &Vec3, v2: &Vec3, v3: &Vec3) -> Mat3 {
         Mat3 { d: [
-            v1.x, v2.x, v1.x,
-            v1.y, v2.y, v1.y,
-            v1.z, v2.z, v1.z
+            v1.x, v2.x, v3.x,
+            v1.y, v2.y, v3.y,
+            v1.z, v2.z, v3.z
         ] }
     }
 
@@ -194,31 +195,32 @@ impl Mat3 {
 
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 pub struct TextureCoord {
     pub u: f32,
     pub v: f32
 }
 
-
-struct VertexIndexed {
-    pos: u32,
-    norm: Option<u32>,
-    tex: Option<u32>
+#[derive(Debug, Clone, Copy)]
+pub struct VertexIndexed {
+    pub pos: u32,
+    pub norm: Option<u32>,
+    pub tex: Option<u32>
 }
 
 struct VertexDeindex<'a> {
-    pos: &'a Vec3,
-    norm: Option<&'a Vec3>,
-    tex: Option<&'a TextureCoord>
+    pub pos: &'a Vec3,
+    pub norm: Option<&'a Vec3>,
+    pub tex: Option<&'a TextureCoord>
 }
 
+#[derive(Debug)]
 pub struct Vertex {
-    pos: Vec3,
-    normal: Vec3,
-    bitangent: Vec3,
-    tangent: Vec3,
-    tex: TextureCoord
+    pub pos: Vec3,
+    pub normal: Vec3,
+    pub bitangent: Vec3,
+    pub tangent: Vec3,
+    pub tex: TextureCoord
 }
 
 pub struct MeshDataBasic {
@@ -305,16 +307,15 @@ impl MeshDataBasic {
     }
 
     /// adds a tri to the index buffer
-    pub fn add_tri(&mut self, vtxs: [VertexIndexed; 3]) -> Result<(), MeshError> {
+    pub fn add_tri(&mut self, vtxs: [VertexIndexed; 3]) -> Result<usize, MeshError> {
         // this is our validation, if the triangle is invalid, we don't want 
         // to have to attempt state rollback
         let _ = vtxs.iter()
             .map(|vtx| self.deref_vertex(vtx))
             .collect::<Result<Vec<_>,_>>()?;
 
-        vtxs.iter()
-            .map(|vtx| self.f.push(*vtx));
-        Ok(())
+        self.f.extend(vtxs.iter());
+        Ok(self.f.len() / 3 - 1)
     }
 
     fn deref_tri_vtx(&self, tri_idx: usize, tri_vtx_idx: u8) -> Result<VertexDeindex, MeshError> {
@@ -323,7 +324,7 @@ impl MeshDataBasic {
         };
 
         let vtx_idx = tri_idx * 3 + tri_vtx_idx as usize;
-        self.deref_vertex(self.f.get(tri_idx * 3)
+        self.deref_vertex(self.f.get(vtx_idx)
             .ok_or_else(|| MeshError::TriangleIndexInvalid { 
                 tried: tri_idx as u32,
                 max: self.f.len() as u32 / 3 
@@ -349,11 +350,11 @@ impl MeshDataBasic {
 
 
     pub fn get_vertex(&self, idx: usize) -> Result<Vertex, MeshError> {
-        let tri_idx = (idx - (idx % 3)) * 3;
+        let tri_idx = idx / 3;
         let tri_vertices = self.verticies_from_tri_idx(tri_idx)?;
-        let p = tri_vertices[idx % 3];
-        let p1 = tri_vertices[(idx + 1) % 3];
-        let p2 = tri_vertices[(idx + 2) % 3];
+        let p = &tri_vertices[idx % 3];
+        // let p1 = &tri_vertices[(idx + 1) % 3];
+        // let p2 = &tri_vertices[(idx + 2) % 3];
 
 
         let normal = match p.norm {
@@ -371,9 +372,24 @@ impl MeshDataBasic {
                 normal: normal,
                 bitangent: b_bitangent,
                 tangent: b_tangent,
-                tex: *p.tex.unwrap()
+                tex: *p.tex.map_or(&TextureCoord{u: 0.0, v: 0.0}, |x| x)
             }
         )
+    }
+
+    pub fn edges(&self) -> MeshEdgeIterator<'_> {
+        MeshEdgeIterator { 
+            mesh: &self, 
+            tri_index: 0, 
+            vtx_index: 0 
+        }
+    }
+
+    pub fn tris(&self) -> MeshTriIterator<'_> {
+        MeshTriIterator { 
+            mesh: &self, 
+            tri_index: 0 
+        }
     }
 }
 
@@ -384,14 +400,14 @@ pub struct MeshEdgeIterator<'a> {
 }
 
 impl<'a> Iterator for MeshEdgeIterator<'a> {
-    type Item = Edge<'a>;
+    type Item = Edge;
     fn next(&mut self) -> Option<Self::Item> {
         if 3 * self.tri_index >= self.mesh.f.len() {
             return None;
         };
         let ret = Edge {
-            start: &self.mesh.get_vertex(self.tri_index + self.vtx_index).unwrap(),
-            end: &self.mesh.get_vertex(self.tri_index + ((self.vtx_index  + 1 ) % 3)).unwrap(),
+            start: self.mesh.get_vertex(3 * self.tri_index + self.vtx_index).unwrap(),
+            end: self.mesh.get_vertex(3 * self.tri_index + ((self.vtx_index  + 1 ) % 3)).unwrap(),
         };
 
         self.vtx_index = (self.vtx_index + 1) % 3;
@@ -403,13 +419,39 @@ impl<'a> Iterator for MeshEdgeIterator<'a> {
     }
 }
 
-pub struct Edge<'a> {
-    pub start: &'a Vertex,
-    pub end: &'a Vertex
+#[derive(Debug)]
+pub struct Edge {
+    pub start: Vertex,
+    pub end: Vertex
 }
 
-pub struct Tri<'a> {
-    v1: &'a Vertex,
-    v2: &'a Vertex,
-    v3: &'a Vertex
+#[derive(Debug)]
+pub struct Tri {
+    v1: Vertex,
+    v2: Vertex,
+    v3: Vertex
+}
+
+pub struct MeshTriIterator<'a> {
+    mesh: &'a MeshDataBasic,
+    tri_index: usize,
+}
+
+impl<'a> Iterator for MeshTriIterator<'a> {
+    type Item = Tri;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.tri_index >= self.mesh.f.len() / 3 {
+            return None;
+        };
+
+        let ret = Tri {
+            v1: self.mesh.get_vertex(3 * self.tri_index + 0).unwrap(),
+            v2: self.mesh.get_vertex(3 * self.tri_index + 1).unwrap(),
+            v3: self.mesh.get_vertex(3 * self.tri_index + 2).unwrap(),
+        };
+
+        self.tri_index += 1;
+
+        Some(ret)
+    }
 }

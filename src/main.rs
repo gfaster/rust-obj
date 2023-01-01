@@ -1,5 +1,10 @@
+#![allow(dead_code)]
+
 use std::{io, convert::TryInto};
+
+use mesh::VertexIndexed;
 mod mesh;
+
 
 #[derive(Debug)]
 enum ObjEntry {
@@ -37,7 +42,8 @@ fn parse_vec3(tokens: Vec<&str>) -> Option<mesh::Vec3> {
     Some(mesh::Vec3 { 
         x: tokens[1].parse().ok()?,
         y: tokens[2].parse().ok()?,
-        z: tokens[3].parse().ok()? })
+        z: tokens[3].parse().ok()?
+    })
     
 }
 
@@ -65,7 +71,8 @@ fn parse_face(tokens: Vec<&str>) -> Option<ObjEntry> {
     let mut types = [VertexDataSpecified::Pos; 3];
     let mut values: Vec<u32> = vec![];
 
-    let attributes_raw = tokens[1..].iter().map(|x: &&str| x.split('/'));
+    let attributes_raw = tokens[1..].iter()
+        .map(|x: &&str| x.split('/'));
 
 
     // puts the line into a nice array, and finds the data it must specify
@@ -138,6 +145,59 @@ fn get_tex_from_objentry(o: &ObjEntry) -> [u32; 3] {
     }
 }
 
+fn build_vtx_from_objentry_face(o: &ObjEntry) -> [mesh::VertexIndexed; 3]{
+    let mut vtxs: Vec<mesh::VertexIndexed> = vec![];
+    for i in 0..3 {
+        let v = match o {
+            ObjEntry::TriP(_) => {
+                VertexIndexed {
+                    pos: get_pos_from_objentry(o)[i],
+                    norm: None,
+                    tex: None
+                }
+            },
+            ObjEntry::TriPN(_) => {
+                VertexIndexed {
+                    pos: get_pos_from_objentry(o)[i],
+                    norm: Some(get_norm_from_objentry(o)[i]),
+                    tex: None
+                }
+            },
+            ObjEntry::TriPT(_) => {
+                VertexIndexed {
+                    pos: get_pos_from_objentry(o)[i],
+                    norm: None,
+                    tex: Some(get_tex_from_objentry(o)[i])
+                }
+            },
+            ObjEntry::TriPTN(_) => {
+                VertexIndexed {
+                    pos: get_pos_from_objentry(o)[i],
+                    norm: Some(get_norm_from_objentry(o)[i]),
+                    tex: Some(get_tex_from_objentry(o)[i])
+                }
+            },
+            _ => panic!("should only take faces")
+        };
+        vtxs.push(v);
+    };
+
+    match vtxs.try_into() {
+        Err(e) => panic!("{:?}", e),
+        Ok(v) => v
+    }
+}
+
+fn handle_objentry(o: ObjEntry, m: &mut mesh::MeshDataBasic) -> Result<(), mesh::MeshError> {
+    match o {
+        ObjEntry::Vertex(v) => m.add_vertex_pos(v),
+        ObjEntry::VertexNormal(vn) => m.add_vertex_normal(vn),
+        ObjEntry::MapTexture(vt) => m.add_vertex_uv(vt),
+        _ => m.add_tri(build_vtx_from_objentry_face(&o))?
+    };
+    Ok(())
+}
+
 
 fn main() {
     let input = io::stdin();
@@ -145,36 +205,11 @@ fn main() {
 
     let mut objmesh = mesh::MeshDataBasic::new();
     
-    while input.read_line(&mut line).is_ok() {
-
+    while input.read_line(&mut line).map_or(0, |x| x) != 0 {
         match read_line(line.as_str()) {
             None => (),
-            Some(x) => {
-                match x {
-                    ObjEntry::Vertex(v) => objmesh.add_vertex_pos(v),
-                    ObjEntry::VertexNormal(vn) => objmesh.add_vertex_normal(vn),
-                    ObjEntry::MapTexture(t) => objmesh.add_vertex_uv(t),
-                    ObjEntry::TriP(_) => objmesh.add_tri_p(
-                        get_pos_from_objentry(&x)
-                    ),
-                    ObjEntry::TriPT(_) => objmesh.add_tri_pt(
-                        get_pos_from_objentry(&x),
-                        get_tex_from_objentry(&x)
-                    ),
-                    ObjEntry::TriPN(_) => objmesh.add_tri_pn(
-                        get_pos_from_objentry(&x),
-                        get_norm_from_objentry(&x)
-                    ),
-                    ObjEntry::TriPTN(_) => objmesh.add_tri_ptn(
-                        get_pos_from_objentry(&x),
-                        get_tex_from_objentry(&x),
-                        get_norm_from_objentry(&x)
-                    )
-                };
-            }
+            Some(o) => handle_objentry(o, &mut objmesh).unwrap_or(())
         };
-
         line.clear();
-    }
-    
+    };
 }
