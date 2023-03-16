@@ -1,7 +1,6 @@
+#![allow(dead_code)]
 
-
-
-
+use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 pub struct Vec3 {
@@ -96,6 +95,27 @@ impl Vec3 {
         };
         Ok(tangent)
     }
+}
+
+impl Into<[f32; 4]> for Vec3 {
+   fn into(self) -> [f32; 4] {
+        [
+            self.x,
+            self.y,
+            self.z,
+            1.0
+        ]
+   } 
+}
+
+impl Into<[f32; 3]> for Vec3 {
+   fn into(self) -> [f32; 3] {
+        [
+            self.x,
+            self.y,
+            self.z
+        ]
+   } 
 }
 
 /// row major currently, want to switch to column major eventually
@@ -201,7 +221,13 @@ pub struct TextureCoord {
     pub v: f32
 }
 
-#[derive(Debug, Clone, Copy)]
+impl Into<[f32; 2]> for TextureCoord {
+    fn into(self) -> [f32; 2] {
+        [self.u, self.v]
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct VertexIndexed {
     pub pos: u32,
     pub norm: Option<u32>,
@@ -223,7 +249,54 @@ pub struct Vertex {
     pub tex: TextureCoord
 }
 
-pub struct MeshDataBasic {
+#[derive(Clone, Copy)]
+pub struct GlVertex {
+    pub position: [f32; 3],
+    pub tangent: [f32; 3],
+    pub bitangent: [f32; 3],
+    pub normal: [f32; 3],
+    pub tex: [f32; 2]
+}
+
+impl From<Vertex> for GlVertex {
+    fn from(value: Vertex) -> Self {
+        GlVertex { 
+            position: value.pos.into(), 
+            normal: value.normal.into(), 
+            tangent: value.tangent.into(), 
+            bitangent: value.bitangent.into(), 
+            tex: value.tex.into() 
+        }
+    }
+}
+
+pub struct MeshDataBuffs {
+    pub verts: Vec<GlVertex>,
+    pub indices: Vec<u32>
+}
+
+impl From<MeshData> for MeshDataBuffs {
+    fn from(value: MeshData) -> Self {
+        let mut added: HashMap<&VertexIndexed, usize> = Default::default();
+        let mut ret: Self = Self{verts: vec![], indices: vec![]};
+        for (i, vert) in value.f.iter().enumerate() {
+            match added.get(&vert) {
+                Some(&idx) => ret.indices.push(idx as u32),
+                None => {
+                    added.insert(&vert, ret.verts.len());
+                    ret.indices.push(ret.verts.len() as u32);
+                    ret.verts.push(value.get_vertex(i)
+                        .expect("indexed wrong in enumeration")
+                        .into());
+                }
+            };
+        };
+
+        return ret;
+    }
+}
+
+pub struct MeshData {
     v: Vec<Vec3>,
     vn: Vec<Vec3>,
     vt: Vec<TextureCoord>,
@@ -239,9 +312,9 @@ pub enum MeshError {
     TriangleVertexIndexInvalid {tried: u32}
 }
 
-impl MeshDataBasic {
+impl MeshData {
     pub fn new() -> Self {
-        MeshDataBasic { 
+        MeshData { 
             v: vec![],
             vn: vec![],
             vt: vec![],
@@ -394,7 +467,7 @@ impl MeshDataBasic {
 }
 
 pub struct MeshEdgeIterator<'a> {
-    mesh: &'a MeshDataBasic,
+    mesh: &'a MeshData,
     tri_index: usize,
     vtx_index: usize
 }
@@ -433,7 +506,7 @@ pub struct Tri {
 }
 
 pub struct MeshTriIterator<'a> {
-    mesh: &'a MeshDataBasic,
+    mesh: &'a MeshData,
     tri_index: usize,
 }
 
@@ -451,6 +524,26 @@ impl<'a> Iterator for MeshTriIterator<'a> {
         };
 
         self.tri_index += 1;
+
+        Some(ret)
+    }
+}
+
+struct MeshVertexIterator<'a> {
+    mesh: &'a MeshData,
+    idx: usize
+}
+
+impl<'a> Iterator for MeshVertexIterator<'a> {
+    type Item = Vertex;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx >= self.mesh.f.len() {
+            return None;
+        };
+
+        let ret = self.mesh.get_vertex(self.idx).unwrap();
+
+        self.idx += 1;
 
         Some(ret)
     }
