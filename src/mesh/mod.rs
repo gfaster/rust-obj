@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::{Index, IndexMut}};
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
+#[repr(C)]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
@@ -47,11 +48,7 @@ impl Vec3 {
     }
 
     pub fn mag(&self) -> f32 {
-        {
-        self.x * self.x +
-        self.y * self.y +
-        self.z * self.z 
-        }.sqrt()
+        self.sq_mag().sqrt()
     }
 
     pub fn scale(&self, scale: f32) -> Vec3 {
@@ -97,25 +94,61 @@ impl Vec3 {
     }
 }
 
-impl Into<[f32; 4]> for Vec3 {
-   fn into(self) -> [f32; 4] {
-        [
-            self.x,
-            self.y,
-            self.z,
-            1.0
-        ]
-   } 
+impl Index<usize> for Vec3 {
+    type Output = f32;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match index {
+            0 => &self.x,
+            1 => &self.y,
+            2 => &self.z,
+            _ => panic!("index {index} is out of bounds")
+        }
+    }
 }
 
-impl Into<[f32; 3]> for Vec3 {
-   fn into(self) -> [f32; 3] {
+impl IndexMut<usize> for Vec3 {
+    fn index_mut(&mut self, index: usize) -> &mut f32 {
+        match index {
+            0 => &mut self.x,
+            1 => &mut self.y,
+            2 => &mut self.z,
+            _ => panic!("index {index} is out of bounds")
+        }
+    }
+}
+
+impl From<[f32; 4]> for Vec3 {
+    fn from(value: [f32; 4]) -> Self {
+        Self { x: value[0], y: value[1], z: value[2] }
+    }
+}
+
+impl From<Vec3> for [f32; 3] {
+    fn from(value: Vec3) -> Self {
         [
-            self.x,
-            self.y,
-            self.z
+            value.x,
+            value.y,
+            value.z
         ]
-   } 
+    }
+}
+
+impl From<Vec3> for [f32; 4] {
+    fn from(value: Vec3) -> Self {
+        [
+            value.x,
+            value.y,
+            value.z,
+            1.0
+        ]
+    }
+}
+
+impl From<[f32; 3]> for Vec3 {
+    fn from(value: [f32; 3]) -> Self {
+        Self { x: value[0], y: value[1], z: value[2] }
+    }
 }
 
 /// row major currently, want to switch to column major eventually
@@ -221,9 +254,37 @@ pub struct TextureCoord {
     pub v: f32
 }
 
-impl Into<[f32; 2]> for TextureCoord {
-    fn into(self) -> [f32; 2] {
-        [self.u, self.v]
+impl From<[f32; 2]> for TextureCoord {
+    fn from(value: [f32; 2]) -> Self {
+        Self { u: value[0], v: value[1] }
+    }
+}
+
+impl From<TextureCoord> for [f32; 2] {
+    fn from(value: TextureCoord) -> Self {
+        [value.u, value.v]
+    }
+}
+
+impl Index<usize> for TextureCoord {
+    type Output = f32;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match index {
+            0 => &self.u,
+            1 => &self.v,
+            _ => panic!("index {index} is out of bounds")
+        }
+    }
+}
+
+impl IndexMut<usize> for TextureCoord {
+    fn index_mut(&mut self, index: usize) -> &mut f32 {
+        match index {
+            0 => &mut self.u,
+            1 => &mut self.v,
+            _ => panic!("index {index} is out of bounds")
+        }
     }
 }
 
@@ -442,7 +503,7 @@ impl MeshData {
         Ok(
             Vertex { 
                 pos: *p.pos,
-                normal: normal,
+                normal,
                 bitangent: b_bitangent,
                 tangent: b_tangent,
                 tex: *p.tex.map_or(&TextureCoord{u: 0.0, v: 0.0}, |x| x)

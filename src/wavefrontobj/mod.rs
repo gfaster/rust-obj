@@ -1,15 +1,15 @@
 #![allow(dead_code)]
 
-use std::{io::{self, BufRead}, convert::TryInto};
+use std::{io::BufRead, convert::{TryInto, self}};
 
 use crate::mesh;
 
 
 #[derive(Debug)]
 enum ObjEntry {
-    Vertex(mesh::Vec3),
-    VertexNormal(mesh::Vec3),
-    MapTexture(mesh::TextureCoord),
+    Vertex([f32; 3]),
+    VertexNormal([f32; 3]),
+    MapTexture([f32; 2]),
     TriP([u32; 3]),
     TriPT([u32; 6]),
     TriPN([u32; 6]),
@@ -22,7 +22,7 @@ fn read_line(line: &str) -> Option<ObjEntry> {
         Some(s) => s
     };
     let tokens: Vec<&str> = noncomment.split_whitespace().collect();
-    if tokens.len() == 0 {
+    if tokens.is_empty() {
         return None;
     };
 
@@ -35,23 +35,14 @@ fn read_line(line: &str) -> Option<ObjEntry> {
     }
 }
 
-fn parse_vec3(tokens: Vec<&str>) -> Option<mesh::Vec3> {
+fn parse_vec3(tokens: Vec<&str>) -> Option<[f32; 3]> {
     // first index is the type - ignored by this function
-    if tokens.len() != 4 { return None; };
-    Some(mesh::Vec3 { 
-        x: tokens[1].parse().ok()?,
-        y: tokens[2].parse().ok()?,
-        z: tokens[3].parse().ok()?
-    })
-    
+    tokens.into_iter().skip(1).map(|t| t.parse().ok()).collect::<Option<Vec<f32>>>().map(|v| v.try_into().ok()).flatten()
 }
 
-fn parse_texture_coords(tokens: Vec<&str>) -> Option<mesh::TextureCoord> {
+fn parse_texture_coords(tokens: Vec<&str>) -> Option<[f32; 2]> {
     // first index is the type - ignored by this function
-    if tokens.len() != 3 { return None; };
-    Some(mesh::TextureCoord { 
-        u: tokens[1].parse().ok()?,
-        v: tokens[2].parse().ok()? })
+    tokens.into_iter().skip(1).map(|t| t.parse().ok()).collect::<Option<Vec<f32>>>().map(|v| v.try_into().ok()).flatten()
 }
 
 fn parse_face(tokens: Vec<&str>) -> Option<ObjEntry> {
@@ -189,9 +180,9 @@ fn build_vtx_from_objentry_face(o: &ObjEntry) -> [mesh::VertexIndexed; 3]{
 
 fn handle_objentry(o: ObjEntry, m: &mut mesh::MeshData) -> Result<(), mesh::MeshError> {
     match o {
-        ObjEntry::Vertex(v) => m.add_vertex_pos(v),
-        ObjEntry::VertexNormal(vn) => m.add_vertex_normal(vn),
-        ObjEntry::MapTexture(vt) => m.add_vertex_uv(vt),
+        ObjEntry::Vertex(v) => m.add_vertex_pos(v.into()),
+        ObjEntry::VertexNormal(vn) => m.add_vertex_normal(vn.into()),
+        ObjEntry::MapTexture(vt) => m.add_vertex_uv(vt.into()),
         _ => m.add_tri(build_vtx_from_objentry_face(&o))?
     };
     Ok(())
