@@ -16,27 +16,30 @@ pub fn display_model(m: mesh::MeshData){
         .expect("unable to open vert.glsl");
     let fragment_shader = fs::read_to_string("./shaders/frag.glsl")
         .expect("unable to open frag.glsl");
-    let program = Program::from_source(&display, vertex_shader.as_str(), fragment_shader.as_str(), None).unwrap();
+
+    // let vertex_shader = include_str!("../../shaders/vert.glsl");
+    // let fragment_shader = include_str!("../../shaders/frag.glsl");
+
+    let program = Program::from_source(&display, vertex_shader.as_ref(), fragment_shader.as_ref(), None).unwrap();
 
     let buffers: mesh::MeshDataBuffs = m.into();
 
     implement_vertex!(GlVertex, position, normal, tex);
 
     let mut uniforms = uniform! {
-        modelTransformMatrix: [
+        model_transform_matrix: [
         [1.0, 0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0, 0.0],
         [0.0, 0.0, 1.0, 0.0],
-        [ 0.0 , 0.0, 0.0, 1.0f32],
+        [0.0 , 0.0, 0.0, 1.0f32],
     ],
-        projectionMatrix: [
+        projection_matrix: [
         [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [ 0.0 , 0.0, 0.0, 1.0f32],
+        [0.0, 1.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+        [0.0, 0.0, 0.0, 1.0f32],
     ],
-        viewPos: [0.0, 0.0, 0.0f32],
-        lightPos: [0.0, 0.0, 0.0f32],
+        view_pos: [0.0, 0.0, 0.0f32],
     };
 
 
@@ -46,6 +49,7 @@ pub fn display_model(m: mesh::MeshData){
     event_loop.run(move |ev, _, control_flow| {
 
         let mut target = display.draw();
+        target.clear_color(0.0, 0.0, 1.0, 1.0);
         let _ = target.draw(&vbuffer, &ibuffer, &program, &uniforms, &Default::default());
         target.finish().unwrap();
 
