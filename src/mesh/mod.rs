@@ -1,155 +1,16 @@
 #![allow(dead_code)]
 
-use std::{collections::HashMap, ops::{Index, IndexMut}};
+use std::collections::HashMap;
 
-#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
-#[repr(C)]
-pub struct Vec3 {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32
-}
+mod tri;
+pub use tri::*;
 
-impl Vec3 {
-    pub fn cross(&self, other: &Vec3) -> Vec3 {
-        Vec3 { 
-            x: (self.y * other.z) - (self.z * other.y),
-            y: (self.z * other.x) - (self.x * other.z),
-            z: (self.x * other.y) - (self.y * other.x)
-        }
-    }
+mod vec3;
+pub use vec3::*;
 
-    pub fn sub(&self, other: &Vec3) -> Vec3 {
-        Vec3 { 
-            x: self.x - other.x,
-            y: self.y - other.y,
-            z: self.z - other.z
-        }
-    }
+mod texcoord;
+pub use texcoord::*;
 
-    pub fn add(&self, other: &Vec3) -> Vec3 {
-        Vec3 { 
-            x: self.x + other.x,
-            y: self.y + other.y,
-            z: self.z + other.z
-        }
-    }
-
-    pub fn dot(&self, other: &Vec3) -> f32 {
-        self.x * other.x +
-        self.y * other.y +
-        self.z * other.z 
-    }
-
-    pub fn sq_mag(&self) -> f32 {
-        self.x * self.x +
-        self.y * self.y +
-        self.z * self.z 
-    }
-
-    pub fn mag(&self) -> f32 {
-        self.sq_mag().sqrt()
-    }
-
-    pub fn scale(&self, scale: f32) -> Vec3 {
-        Vec3 { 
-            x: self.x * scale, 
-            y: self.y * scale, 
-            z: self.z * scale 
-        }
-    }
-
-    pub fn normalized(&self) -> Result<Vec3, &str> {
-        let sq_mag = self.sq_mag();
-        if sq_mag == 0.0 {
-            return Err("Cannot normalize zero length vector");
-        };
-        let mag = sq_mag.sqrt();
-
-        Ok(Vec3 { 
-            x: self.x / mag, 
-            y: self.y / mag, 
-            z: self.z / mag 
-        })
-    }
-
-
-    pub fn orthoginal(&self) -> Result<Vec3, &str> {
-        let sq_mag = self.sq_mag();
-        if sq_mag == 0.0 {
-            return Err("Cannot find a vector orthoginal to the zero vector");
-        }
-        let tangent = {
-            // will be colinear when self = k * <1, -1, 1>
-            let v1 = Vec3{x: -self.z, y: self.x, z: self.y};
-            let t = self.cross(&v1);
-            if t.sq_mag() < sq_mag * 0.02 {
-                let v2 = Vec3{x: -self.y, y: self.z, z: self.x};
-                self.cross(&v2)
-            } else {
-                t
-            }
-        };
-        Ok(tangent)
-    }
-}
-
-impl Index<usize> for Vec3 {
-    type Output = f32;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        match index {
-            0 => &self.x,
-            1 => &self.y,
-            2 => &self.z,
-            _ => panic!("index {index} is out of bounds")
-        }
-    }
-}
-
-impl IndexMut<usize> for Vec3 {
-    fn index_mut(&mut self, index: usize) -> &mut f32 {
-        match index {
-            0 => &mut self.x,
-            1 => &mut self.y,
-            2 => &mut self.z,
-            _ => panic!("index {index} is out of bounds")
-        }
-    }
-}
-
-impl From<[f32; 4]> for Vec3 {
-    fn from(value: [f32; 4]) -> Self {
-        Self { x: value[0], y: value[1], z: value[2] }
-    }
-}
-
-impl From<Vec3> for [f32; 3] {
-    fn from(value: Vec3) -> Self {
-        [
-            value.x,
-            value.y,
-            value.z
-        ]
-    }
-}
-
-impl From<Vec3> for [f32; 4] {
-    fn from(value: Vec3) -> Self {
-        [
-            value.x,
-            value.y,
-            value.z,
-            1.0
-        ]
-    }
-}
-
-impl From<[f32; 3]> for Vec3 {
-    fn from(value: [f32; 3]) -> Self {
-        Self { x: value[0], y: value[1], z: value[2] }
-    }
-}
 
 /// row major currently, want to switch to column major eventually
 pub struct Mat3 {
@@ -248,45 +109,6 @@ impl Mat3 {
 
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
-pub struct TextureCoord {
-    pub u: f32,
-    pub v: f32
-}
-
-impl From<[f32; 2]> for TextureCoord {
-    fn from(value: [f32; 2]) -> Self {
-        Self { u: value[0], v: value[1] }
-    }
-}
-
-impl From<TextureCoord> for [f32; 2] {
-    fn from(value: TextureCoord) -> Self {
-        [value.u, value.v]
-    }
-}
-
-impl Index<usize> for TextureCoord {
-    type Output = f32;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        match index {
-            0 => &self.u,
-            1 => &self.v,
-            _ => panic!("index {index} is out of bounds")
-        }
-    }
-}
-
-impl IndexMut<usize> for TextureCoord {
-    fn index_mut(&mut self, index: usize) -> &mut f32 {
-        match index {
-            0 => &mut self.u,
-            1 => &mut self.v,
-            _ => panic!("index {index} is out of bounds")
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct VertexIndexed {
@@ -305,16 +127,13 @@ struct VertexDeindex<'a> {
 pub struct Vertex {
     pub pos: Vec3,
     pub normal: Vec3,
-    pub bitangent: Vec3,
-    pub tangent: Vec3,
     pub tex: TextureCoord
 }
 
 #[derive(Clone, Copy)]
+#[repr(C)]
 pub struct GlVertex {
     pub position: [f32; 3],
-    pub tangent: [f32; 3],
-    pub bitangent: [f32; 3],
     pub normal: [f32; 3],
     pub tex: [f32; 2]
 }
@@ -324,8 +143,6 @@ impl From<Vertex> for GlVertex {
         GlVertex { 
             position: value.pos.into(), 
             normal: value.normal.into(), 
-            tangent: value.tangent.into(), 
-            bitangent: value.bitangent.into(), 
             tex: value.tex.into() 
         }
     }
@@ -496,17 +313,11 @@ impl MeshData {
             Some(n) => *n
         };
 
-        let basis = Mat3::basis_from_up(&normal);
-        let b_tangent = basis.get_column(0);
-        let b_bitangent = basis.get_column(1);
-
         Ok(
             Vertex { 
                 pos: *p.pos,
                 normal,
-                bitangent: b_bitangent,
-                tangent: b_tangent,
-                tex: *p.tex.map_or(&TextureCoord{u: 0.0, v: 0.0}, |x| x)
+                tex: *p.tex.unwrap_or(&TextureCoord{u: 0.0, v: 0.0})
             }
         )
     }
@@ -561,9 +372,7 @@ pub struct Edge {
 
 #[derive(Debug)]
 pub struct Tri {
-    v1: Vertex,
-    v2: Vertex,
-    v3: Vertex
+    v: [Vertex; 3]
 }
 
 pub struct MeshTriIterator<'a> {
@@ -578,11 +387,7 @@ impl<'a> Iterator for MeshTriIterator<'a> {
             return None;
         };
 
-        let ret = Tri {
-            v1: self.mesh.get_vertex(3 * self.tri_index + 0).unwrap(),
-            v2: self.mesh.get_vertex(3 * self.tri_index + 1).unwrap(),
-            v3: self.mesh.get_vertex(3 * self.tri_index + 2).unwrap(),
-        };
+        let ret = (0..3).map(|i| self.mesh.get_vertex(3 * self.tri_index + i).expect("valid index")).collect::<Vec<_>>().try_into().expect("valid tri").into();
 
         self.tri_index += 1;
 
