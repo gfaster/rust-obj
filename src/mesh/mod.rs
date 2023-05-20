@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::DerefMut};
 
 mod tri;
 pub use tri::*;
@@ -370,10 +370,6 @@ pub struct Edge {
     pub end: Vertex
 }
 
-#[derive(Debug)]
-pub struct Tri {
-    v: [Vertex; 3]
-}
 
 pub struct MeshTriIterator<'a> {
     mesh: &'a MeshData,
@@ -387,7 +383,8 @@ impl<'a> Iterator for MeshTriIterator<'a> {
             return None;
         };
 
-        let ret = (0..3).map(|i| self.mesh.get_vertex(3 * self.tri_index + i).expect("valid index")).collect::<Vec<_>>().try_into().expect("valid tri").into();
+        let retv = (0..3).map(|i| self.mesh.get_vertex(3 * self.tri_index + i).expect("valid index")).collect::<Vec<Vertex>>();
+        let ret = <Vec<_> as TryInto<[Vertex; 3]>>::try_into(retv).expect("valid_try").into();
 
         self.tri_index += 1;
 

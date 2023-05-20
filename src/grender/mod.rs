@@ -20,7 +20,7 @@ pub fn display_model(m: mesh::MeshData){
 
     let buffers: mesh::MeshDataBuffs = m.into();
 
-    implement_vertex!(GlVertex, position, normal, tangent, bitangent, tex);
+    implement_vertex!(GlVertex, position, normal, tex);
 
     let mut uniforms = uniform! {
         modelTransformMatrix: [
