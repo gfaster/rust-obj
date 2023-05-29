@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{io::BufRead, convert::{TryInto, self}};
+use std::{io::BufRead, convert::TryInto};
 
 use crate::mesh;
 
@@ -10,6 +10,11 @@ enum ObjEntry {
     Vertex([f32; 3]),
     VertexNormal([f32; 3]),
     MapTexture([f32; 2]),
+    Face(FaceEntry)
+}
+
+#[derive(Debug)]
+enum FaceEntry {
     TriP([u32; 3]),
     TriPT([u32; 6]),
     TriPN([u32; 6]),
@@ -27,25 +32,25 @@ fn read_line(line: &str) -> Option<ObjEntry> {
     };
 
     match tokens[0] {
-        "f" => parse_face(tokens),
-        "v" => Some(ObjEntry::Vertex(parse_vec3(tokens)?)),
-        "vn" => Some(ObjEntry::VertexNormal(parse_vec3(tokens)?)),
-        "vt" => Some(ObjEntry::MapTexture(parse_texture_coords(tokens)?)),
+        "f" => parse_face(&tokens),
+        "v" => Some(ObjEntry::Vertex(parse_vec3(&tokens)?)),
+        "vn" => Some(ObjEntry::VertexNormal(parse_vec3(&tokens)?)),
+        "vt" => Some(ObjEntry::MapTexture(parse_texture_coords(&tokens)?)),
         _ => None
     }
 }
 
-fn parse_vec3(tokens: Vec<&str>) -> Option<[f32; 3]> {
+fn parse_vec3(tokens: &[&str]) -> Option<[f32; 3]> {
     // first index is the type - ignored by this function
     tokens.into_iter().skip(1).map(|t| t.parse().ok()).collect::<Option<Vec<f32>>>().map(|v| v.try_into().ok()).flatten()
 }
 
-fn parse_texture_coords(tokens: Vec<&str>) -> Option<[f32; 2]> {
+fn parse_texture_coords(tokens: &[&str]) -> Option<[f32; 2]> {
     // first index is the type - ignored by this function
     tokens.into_iter().skip(1).map(|t| t.parse().ok()).collect::<Option<Vec<f32>>>().map(|v| v.try_into().ok()).flatten()
 }
 
-fn parse_face(tokens: Vec<&str>) -> Option<ObjEntry> {
+fn parse_face(tokens: &[&str]) -> Option<ObjEntry> {
     // I want this to only parse triangles for now
     if tokens.len() != 4 { return None; };
     
@@ -96,10 +101,10 @@ fn parse_face(tokens: Vec<&str>) -> Option<ObjEntry> {
     };
 
     match types[0] {
-        VertexDataSpecified::Pos => Some(ObjEntry::TriP(values.try_into().expect("number of attributes got messed up"))),
-        VertexDataSpecified::PosTex => Some(ObjEntry::TriPT(values.try_into().expect("number of attributes got messed up"))),
-        VertexDataSpecified::PosNorm => Some(ObjEntry::TriPN(values.try_into().expect("number of attributes got messed up"))),
-        VertexDataSpecified::PosTexNorm => Some(ObjEntry::TriPTN(values.try_into().expect("number of attributes got messed up"))),
+        VertexDataSpecified::Pos => Some(ObjEntry::Face(FaceEntry::TriP(values.try_into().expect("number of attributes got messed up")))),
+        VertexDataSpecified::PosTex => Some(ObjEntry::Face(FaceEntry::TriPT(values.try_into().expect("number of attributes got messed up")))),
+        VertexDataSpecified::PosNorm => Some(ObjEntry::Face(FaceEntry::TriPN(values.try_into().expect("number of attributes got messed up")))),
+        VertexDataSpecified::PosTexNorm => Some(ObjEntry::Face(FaceEntry::TriPTN(values.try_into().expect("number of attributes got messed up")))),
     }
 }
 
@@ -109,72 +114,39 @@ fn calculate_normal(v: [&mesh::Vec3; 3]) -> mesh::Vec3 {
     edge1.cross(&edge2).normalized().unwrap()
 }
 
-fn get_pos_from_objentry(o: &ObjEntry) -> [u32; 3] {
-    match o {
-        ObjEntry::TriP(x) => *x,
-        ObjEntry::TriPT(x) => [x[0], x[2], x[4]],
-        ObjEntry::TriPN(x) => [x[0], x[2], x[4]],
-        ObjEntry::TriPTN(x) => [x[0], x[3], x[6]],
-        _ => panic!("this function should only be called on face line, but it was called on {:?}", o)
+
+impl FaceEntry {
+    fn norm(&self) -> Option<[u32; 3]> {
+        match self {
+            FaceEntry::TriPN(x) => Some([x[1], x[3], x[5]]),
+            FaceEntry::TriPTN(x) => Some([x[2], x[5], x[8]]),
+            _ => None
+        }
     }
-}
 
-fn get_norm_from_objentry(o: &ObjEntry) -> [u32; 3] {
-    match o {
-        ObjEntry::TriPN(x) => [x[1], x[3], x[5]],
-        ObjEntry::TriPTN(x) => [x[2], x[5], x[8]],
-        _ => panic!("this function should only be called on face line with a normal, but it was called on {:?}", o)
+    fn tex(&self) -> Option<[u32; 3]> {
+        match self {
+            FaceEntry::TriPT(x) => Some([x[1], x[3], x[5]]),
+            FaceEntry::TriPTN(x) => Some([x[1], x[4], x[7]]),
+            _ => None
+        }
     }
-}
 
-fn get_tex_from_objentry(o: &ObjEntry) -> [u32; 3] {
-    match o {
-        ObjEntry::TriPT(x) => [x[1], x[3], x[5]],
-        ObjEntry::TriPTN(x) => [x[1], x[4], x[7]],
-        _ => panic!("this function should only be called on face line with a uv, but it was called on {:?}", o)
+    fn pos(&self) -> Option<[u32; 3]> {
+        match self {
+            FaceEntry::TriP(x) => Some(*x),
+            FaceEntry::TriPT(x) => Some([x[0], x[2], x[4]]),
+            FaceEntry::TriPN(x) => Some([x[0], x[2], x[4]]),
+            FaceEntry::TriPTN(x) => Some([x[0], x[3], x[6]]),
+        }
     }
-}
 
-fn build_vtx_from_objentry_face(o: &ObjEntry) -> [mesh::VertexIndexed; 3]{
-    let mut vtxs: Vec<mesh::VertexIndexed> = vec![];
-    for i in 0..3 {
-        let v = match o {
-            ObjEntry::TriP(_) => {
-                mesh::VertexIndexed {
-                    pos: get_pos_from_objentry(o)[i],
-                    norm: None,
-                    tex: None
-                }
-            },
-            ObjEntry::TriPN(_) => {
-                mesh::VertexIndexed {
-                    pos: get_pos_from_objentry(o)[i],
-                    norm: Some(get_norm_from_objentry(o)[i]),
-                    tex: None
-                }
-            },
-            ObjEntry::TriPT(_) => {
-                mesh::VertexIndexed {
-                    pos: get_pos_from_objentry(o)[i],
-                    norm: None,
-                    tex: Some(get_tex_from_objentry(o)[i])
-                }
-            },
-            ObjEntry::TriPTN(_) => {
-                mesh::VertexIndexed {
-                    pos: get_pos_from_objentry(o)[i],
-                    norm: Some(get_norm_from_objentry(o)[i]),
-                    tex: Some(get_tex_from_objentry(o)[i])
-                }
-            },
-            _ => panic!("should only take faces")
-        };
-        vtxs.push(v);
-    };
-
-    match vtxs.try_into() {
-        Err(e) => panic!("{:?}", e),
-        Ok(v) => v
+    fn build_vtx(&self) -> [mesh::VertexIndexed; 3] {
+        let mut vtxs: [mesh::VertexIndexed; 3];
+        self.norm().map(|n| n.iter().zip(vtxs.iter_mut()).map(|(n, v)| v.norm = Some(*n)));
+        self.pos().map(|p| p.iter().zip(vtxs.iter_mut()).map(|(p, v)| v.pos = *p));
+        self.tex().map(|t| t.iter().zip(vtxs.iter_mut()).map(|(t, v)| v.tex = Some(*t)));
+        vtxs
     }
 }
 
@@ -183,7 +155,7 @@ fn handle_objentry(o: ObjEntry, m: &mut mesh::MeshData) -> Result<(), mesh::Mesh
         ObjEntry::Vertex(v) => m.add_vertex_pos(v.into()),
         ObjEntry::VertexNormal(vn) => m.add_vertex_normal(vn.into()),
         ObjEntry::MapTexture(vt) => m.add_vertex_uv(vt.into()),
-        _ => m.add_tri(build_vtx_from_objentry_face(&o))?
+        ObjEntry::Face(f) => m.add_tri(f.build_vtx())?
     };
     Ok(())
 }
