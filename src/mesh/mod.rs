@@ -1,116 +1,15 @@
 #![allow(dead_code)]
 
-use std::{collections::HashMap, ops::DerefMut};
+use std::collections::HashMap;
 
 mod tri;
 pub use tri::*;
-
-mod vec3;
-pub use vec3::*;
-
-mod texcoord;
-pub use texcoord::*;
+pub use glm::{Vec3, Vec2};
 
 
-/// row major currently, want to switch to column major eventually
-pub struct Mat3 {
-    d: [f32; 9]
-}
-
-impl Mat3 {
-    pub fn new_from_columns(v1: &Vec3, v2: &Vec3, v3: &Vec3) -> Mat3 {
-        Mat3 { d: [
-            v1.x, v2.x, v3.x,
-            v1.y, v2.y, v3.y,
-            v1.z, v2.z, v3.z
-        ] }
-    }
-
-    pub fn basis_from_up(positive_z: &Vec3) -> Mat3 {
-        let tangent = positive_z.orthoginal().unwrap();
-        let bitangent = positive_z.cross(&tangent);
-        Self::new_from_columns(&tangent, &bitangent, positive_z)
-    }
-
-    fn get_column(&self, idx: usize) -> Vec3 {
-        Vec3 { 
-            x: self.d[0 + idx],
-            y: self.d[3 + idx],
-            z: self.d[6 + idx]
-        }
-    }
-
-    fn get_row(&self, idx: usize) -> Vec3 {
-        Vec3 { 
-            x: self.d[0 + idx * 3],
-            y: self.d[1 + idx * 3],
-            z: self.d[2 + idx * 3]
-        }
-    }
-
-    pub fn apply_to_vec(&self, rhs: &Vec3) -> Vec3 {
-        Vec3 { 
-            x: self.get_row(0).dot(&rhs),
-            y: self.get_row(1).dot(&rhs),
-            z: self.get_row(2).dot(&rhs)
-        }
-    }
-
-    pub fn apply_to_mat(&self, rhs: &Mat3) -> Mat3 {
-        Self::new_from_columns(
-            &self.apply_to_vec(&rhs.get_column(0)),
-            &self.apply_to_vec(&rhs.get_column(1)),
-            &self.apply_to_vec(&rhs.get_column(2))
-        )
-    }
 
 
-    pub fn det(&self) -> f32 {
-        let s = &self.d;
-        let d0 = s[0] * {
-            s[1 * 3 + 1] * s[2 * 3 + 2] -
-            s[1 * 3 + 2] * s[2 * 3 + 1]
-        };
-        let d1 = s[1] * {
-            s[1 * 3 + 0] * s[2 * 3 + 2] -
-            s[1 * 3 + 2] * s[2 * 3 + 0]
-        };
-        let d2 = s[2] * {
-            s[1 * 3 + 0] * s[2 * 3 + 1] -
-            s[1 * 3 + 1] * s[2 * 3 + 0]
-        };
-
-        d0 - d1 + d2
-    }
-
-    pub fn inverse(&self) -> Option<Mat3> {
-        let det = self.det();
-        if det == 0.0 {
-            return None
-        };
-
-        let m = &self.d;
-        let invdet = 1.0/det;
-
-        // adopted from https://stackoverflow.com/a/18504573/7487237
-        Some(Mat3 { d:[
-            (m[1 * 3 + 1] * m[2 * 3 + 2] - m[2 * 3 + 1] * m[1 * 3 + 2]) * invdet,
-            (m[0 * 3 + 2] * m[2 * 3 + 1] - m[0 * 3 + 1] * m[2 * 3 + 2]) * invdet,
-            (m[0 * 3 + 1] * m[1 * 3 + 2] - m[0 * 3 + 2] * m[1 * 3 + 1]) * invdet,
-            (m[1 * 3 + 2] * m[2 * 3 + 0] - m[1 * 3 + 0] * m[2 * 3 + 2]) * invdet,
-            (m[0 * 3 + 0] * m[2 * 3 + 2] - m[0 * 3 + 2] * m[2 * 3 + 0]) * invdet,
-            (m[1 * 3 + 0] * m[0 * 3 + 2] - m[0 * 3 + 0] * m[1 * 3 + 2]) * invdet,
-            (m[1 * 3 + 0] * m[2 * 3 + 1] - m[2 * 3 + 0] * m[1 * 3 + 1]) * invdet,
-            (m[2 * 3 + 0] * m[0 * 3 + 1] - m[0 * 3 + 0] * m[2 * 3 + 1]) * invdet,
-            (m[0 * 3 + 0] * m[1 * 3 + 1] - m[1 * 3 + 0] * m[0 * 3 + 1]) * invdet
-        ]})
-
-    }
-
-}
-
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
 pub struct VertexIndexed {
     pub pos: u32,
     pub norm: Option<u32>,
@@ -120,14 +19,14 @@ pub struct VertexIndexed {
 struct VertexDeindex<'a> {
     pub pos: &'a Vec3,
     pub norm: Option<&'a Vec3>,
-    pub tex: Option<&'a TextureCoord>
+    pub tex: Option<&'a Vec2>
 }
 
 #[derive(Debug)]
 pub struct Vertex {
     pub pos: Vec3,
     pub normal: Vec3,
-    pub tex: TextureCoord
+    pub tex: Vec2
 }
 
 #[derive(Clone, Copy)]
@@ -175,9 +74,9 @@ impl From<MeshData> for MeshDataBuffs {
 }
 
 pub struct MeshData {
-    v: Vec<Vec3>,
-    vn: Vec<Vec3>,
-    vt: Vec<TextureCoord>,
+    v: Vec<glm::Vec3>,
+    vn: Vec<glm::Vec3>,
+    vt: Vec<glm::Vec2>,
     f: Vec<VertexIndexed>
 }
 
@@ -219,7 +118,7 @@ impl MeshData {
     /// adds a new vertex texture coordinate, and returns the index
     /// this function is unaware of duplicates - it's up 
     /// to the caller to be efficent with memory
-    pub fn add_vertex_uv(&mut self, uv: TextureCoord) -> usize {
+    pub fn add_vertex_uv(&mut self, uv: Vec2) -> usize {
         self.vt.push(uv);
         self.vt.len() - 1
     } 
@@ -294,8 +193,8 @@ impl MeshData {
     /// assumes a clockwise winding order
     fn calculate_tri_normal(&self, tri_idx: usize) -> Result<Vec3, MeshError> {
         let vtxs = self.verticies_from_tri_idx(tri_idx)?;
-        let edge1 = vtxs[0].pos.sub(vtxs[1].pos);
-        let edge2 = vtxs[0].pos.sub(vtxs[2].pos);
+        let edge1 = vtxs[0].pos - vtxs[1].pos;
+        let edge2 = vtxs[0].pos - vtxs[2].pos;
         Ok(edge1.cross(&edge2))
     }
 
@@ -317,7 +216,7 @@ impl MeshData {
             Vertex { 
                 pos: *p.pos,
                 normal,
-                tex: *p.tex.unwrap_or(&TextureCoord{u: 0.0, v: 0.0})
+                tex: *p.tex.unwrap_or(&Vec2::from([0.0f32, 0.0f32]))
             }
         )
     }

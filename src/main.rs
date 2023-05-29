@@ -1,4 +1,5 @@
 extern crate glium;
+extern crate nalgebra_glm as glm;
 
 mod wavefrontobj;
 mod mesh;

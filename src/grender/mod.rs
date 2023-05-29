@@ -1,8 +1,8 @@
-use std::{io, fs};
+use std::fs;
 
 use crate::mesh;
 use crate::mesh::GlVertex;
-use glium::{glutin, Frame, Surface, Program, VertexBuffer, IndexBuffer, implement_vertex, uniform};
+use glium::{glutin, Surface, Program, VertexBuffer, IndexBuffer, implement_vertex, uniform};
 
 #[allow(unused_mut, unused_variables)]
 pub fn display_model(m: mesh::MeshData){

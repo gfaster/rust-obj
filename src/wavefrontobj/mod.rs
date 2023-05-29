@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{io::BufRead, convert::TryInto};
+use std::{io::BufRead, convert::TryInto, ops::Sub};
 
 use crate::mesh;
 
@@ -109,9 +109,9 @@ fn parse_face(tokens: &[&str]) -> Option<ObjEntry> {
 }
 
 fn calculate_normal(v: [&mesh::Vec3; 3]) -> mesh::Vec3 {
-    let edge1 = v[0].sub(&v[1]);
-    let edge2 = v[1].sub(&v[2]);
-    edge1.cross(&edge2).normalized().unwrap()
+    let edge1 = v[0].sub(v[1]);
+    let edge2 = v[1].sub(v[2]);
+    edge1.cross(&edge2).normalize()
 }
 
 
@@ -132,20 +132,20 @@ impl FaceEntry {
         }
     }
 
-    fn pos(&self) -> Option<[u32; 3]> {
+    fn pos(&self) -> [u32; 3] {
         match self {
-            FaceEntry::TriP(x) => Some(*x),
-            FaceEntry::TriPT(x) => Some([x[0], x[2], x[4]]),
-            FaceEntry::TriPN(x) => Some([x[0], x[2], x[4]]),
-            FaceEntry::TriPTN(x) => Some([x[0], x[3], x[6]]),
+            FaceEntry::TriP(x) => *x,
+            FaceEntry::TriPT(x) => [x[0], x[2], x[4]],
+            FaceEntry::TriPN(x) => [x[0], x[2], x[4]],
+            FaceEntry::TriPTN(x) => [x[0], x[3], x[6]],
         }
     }
 
     fn build_vtx(&self) -> [mesh::VertexIndexed; 3] {
-        let mut vtxs: [mesh::VertexIndexed; 3];
-        self.norm().map(|n| n.iter().zip(vtxs.iter_mut()).map(|(n, v)| v.norm = Some(*n)));
-        self.pos().map(|p| p.iter().zip(vtxs.iter_mut()).map(|(p, v)| v.pos = *p));
-        self.tex().map(|t| t.iter().zip(vtxs.iter_mut()).map(|(t, v)| v.tex = Some(*t)));
+        let mut vtxs: [mesh::VertexIndexed; 3] = Default::default();
+        self.norm().map(|n| n.iter().zip(vtxs.iter_mut()).for_each(|(n, v)| v.norm = Some(*n)));
+        self.pos().iter().zip(vtxs.iter_mut()).for_each(|(p, v)| v.pos = *p);
+        self.tex().map(|t| t.iter().zip(vtxs.iter_mut()).for_each(|(t, v)| v.tex = Some(*t)));
         vtxs
     }
 }
