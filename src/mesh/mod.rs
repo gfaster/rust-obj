@@ -220,7 +220,7 @@ impl MeshData {
         let vtxs = self.verticies_from_tri_idx(tri_idx)?;
         let edge1 = vtxs[0].pos - vtxs[1].pos;
         let edge2 = vtxs[0].pos - vtxs[2].pos;
-        Ok(edge1.cross(&edge2))
+        Ok(-edge1.cross(&edge2).normalize())
     }
 
 

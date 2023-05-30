@@ -1,22 +1,25 @@
 #version 330 core
 
-// This is adopted from my cs class's vert (and frag) shaders
-// It's a very standard setup
-
 in vec3 position; 
 in vec3 normal; 
 in vec2 tex;
 
-out vec3 FragPos;
+out vec4 v_eyePos;
+out vec4 v_eyeNorm;
 out vec2 v_texCoord;
 
 uniform mat4 transform;
 uniform mat4 projection_matrix;
-uniform vec3 view_pos;
+uniform mat4 normal_matrix;
 
 void main()
 {
-  gl_Position = projection_matrix * transform * vec4(position, 1.0f);
+  vec4 pos = vec4(position, 1.0f);
 
+  v_eyeNorm = normalize(normal_matrix * vec4(normal, 0.0));
+  v_eyePos = transform * pos;
   v_texCoord = tex;
+
+
+  gl_Position = projection_matrix * transform * pos;
 }

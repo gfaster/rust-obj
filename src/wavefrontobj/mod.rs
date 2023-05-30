@@ -153,7 +153,7 @@ impl FaceEntry {
 fn handle_objentry(o: ObjEntry, m: &mut mesh::MeshData) -> Result<(), mesh::MeshError> {
     match o {
         ObjEntry::Vertex(v) => m.add_vertex_pos(v.into()),
-        ObjEntry::VertexNormal(vn) => m.add_vertex_normal(vn.into()),
+        ObjEntry::VertexNormal(vn) => m.add_vertex_normal(glm::Vec3::from(vn).normalize()),
         ObjEntry::MapTexture(vt) => m.add_vertex_uv(vt.into()),
         ObjEntry::Face(f) => m.add_tri(f.build_vtx())?
     };
