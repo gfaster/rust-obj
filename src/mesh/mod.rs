@@ -29,8 +29,7 @@ pub struct Vertex {
     pub tex: Vec2
 }
 
-#[derive(Clone, Copy)]
-#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct GlVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
@@ -77,7 +76,11 @@ pub struct MeshData {
     v: Vec<glm::Vec3>,
     vn: Vec<glm::Vec3>,
     vt: Vec<glm::Vec2>,
-    f: Vec<VertexIndexed>
+    f: Vec<VertexIndexed>,
+
+    normalize_factor_sq: f32,
+    running_center: Vec3,
+    running_volume: f32
 }
 
 #[derive(Debug)]
@@ -95,7 +98,11 @@ impl MeshData {
             v: vec![],
             vn: vec![],
             vt: vec![],
-            f: vec![]
+            f: vec![],
+
+            normalize_factor_sq: 0.0,
+            running_center: Vec3::from([0.0, 0.0, 0.0]),
+            running_volume: 0.0
         }
     }
 
@@ -103,8 +110,19 @@ impl MeshData {
     /// this function is unaware of duplicates - it's up 
     /// to the caller to be efficent with memory
     pub fn add_vertex_pos(&mut self, pos: Vec3) -> usize {
+        if pos.magnitude_squared() > self.normalize_factor_sq {
+            self.normalize_factor_sq = pos.magnitude_squared();
+        }
         self.v.push(pos);
         self.v.len() - 1
+    }
+
+    pub fn normalize_factor(&self) -> f32 {
+        self.normalize_factor_sq.sqrt()
+    }
+
+    pub fn centroid(&self) -> Vec3 {
+        self.running_center / self.running_volume
     }
 
     /// adds a new vertex normal, and returns the index
@@ -160,9 +178,16 @@ impl MeshData {
     pub fn add_tri(&mut self, vtxs: [VertexIndexed; 3]) -> Result<usize, MeshError> {
         // this is our validation, if the triangle is invalid, we don't want 
         // to have to attempt state rollback
-        let _ = vtxs.iter()
+        let vd = vtxs.iter()
             .map(|vtx| self.deref_vertex(vtx))
             .collect::<Result<Vec<_>,_>>()?;
+
+        // https://stackoverflow.com/a/67078389
+        // contribute to the centroid of the mesh
+        let center = vd[0].pos + vd[1].pos + vd[2].pos / 4.0;
+        let volume = vd[0].pos.dot(&vd[1].pos.cross( &vd[2].pos)) / 6.0;
+        self.running_center += center * volume;
+        self.running_volume += volume;
 
         self.f.extend(vtxs.iter());
         Ok(self.f.len() / 3 - 1)
