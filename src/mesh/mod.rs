@@ -125,6 +125,14 @@ impl MeshData {
         self.running_center / self.running_volume
     }
 
+    pub fn recenter(&mut self) {
+        let centroid = self.centroid();
+        for v in self.v.iter_mut() {
+            *v -= centroid;
+        }
+        self.running_center = Vec3::from([0.0, 0.0, 0.0]); 
+    }
+
     /// adds a new vertex normal, and returns the index
     /// this function is unaware of duplicates - it's up 
     /// to the caller to be efficent with memory
@@ -177,14 +185,15 @@ impl MeshData {
     /// adds a tri to the index buffer
     pub fn add_tri(&mut self, vtxs: [VertexIndexed; 3]) -> Result<usize, MeshError> {
         // this is our validation, if the triangle is invalid, we don't want 
-        // to have to attempt state rollback
+        // to have to attempt state rollback.
+        // I don't like that this requires an allocation though
         let vd = vtxs.iter()
             .map(|vtx| self.deref_vertex(vtx))
             .collect::<Result<Vec<_>,_>>()?;
 
         // https://stackoverflow.com/a/67078389
         // contribute to the centroid of the mesh
-        let center = vd[0].pos + vd[1].pos + vd[2].pos / 4.0;
+        let center = (vd[0].pos + vd[1].pos + vd[2].pos) / 4.0;
         let volume = vd[0].pos.dot(&vd[1].pos.cross( &vd[2].pos)) / 6.0;
         self.running_center += center * volume;
         self.running_volume += volume;
@@ -220,7 +229,7 @@ impl MeshData {
         let vtxs = self.verticies_from_tri_idx(tri_idx)?;
         let edge1 = vtxs[0].pos - vtxs[1].pos;
         let edge2 = vtxs[0].pos - vtxs[2].pos;
-        Ok(-edge1.cross(&edge2).normalize())
+        Ok(edge1.cross(&edge2).normalize())
     }
 
 

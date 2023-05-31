@@ -4,22 +4,23 @@ in vec3 position;
 in vec3 normal; 
 in vec2 tex;
 
-out vec4 v_eyePos;
-out vec4 v_eyeNorm;
+out vec3 v_fragPos;
+out vec3 v_fragNorm;
 out vec2 v_texCoord;
 
 uniform mat4 transform;
+uniform mat4 modelview;
 uniform mat4 projection_matrix;
-uniform mat4 normal_matrix;
+uniform mat3 normal_matrix;
 
 void main()
 {
   vec4 pos = vec4(position, 1.0f);
 
-  v_eyeNorm = normalize(normal_matrix * vec4(normal, 0.0));
-  v_eyePos = transform * pos;
+  v_fragNorm = normalize(normal_matrix * normal);
+  v_fragPos = vec3(transform * pos);
   v_texCoord = tex;
 
 
-  gl_Position = projection_matrix * transform * pos;
+  gl_Position = projection_matrix * modelview * pos;
 }

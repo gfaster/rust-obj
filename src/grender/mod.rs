@@ -42,20 +42,25 @@ pub fn display_model(m: mesh::MeshData){
         [scale, 0.0, 0.0, 0.0],
         [0.0, scale, 0.0, 0.0],
         [0.0, 0.0, scale, 0.0],
-        [0.0, 0.0, -3.0, 1.0f32]
+        [0.0, 0.0, 0.0, 1.0f32]
     ]);
 
+
+
+
+    let normal_matrix = glm::transpose(&glm::inverse(&glm::mat4_to_mat3(&transform)));
+
     let (view, light_pos) = {
-        let target_pos = glm::vec4_to_vec3(&(transform * glm::vec3_to_vec4(&center)));
+        let target_pos = center;
         let eye_pos = target_pos + glm::Vec3::from([0.0, 0.0, 3.0f32]); 
         let up = glm::Vec3::from([0.0, 1.0, 0.0f32]);
-        let light_pos = glm::vec3_to_vec4(&(eye_pos + glm::Vec3::from([1.0, -1.0, 0.0f32])));
+        let light_pos = eye_pos + glm::Vec3::from([2.0, 2.0, 0.0f32]);
         (glm::look_at(&eye_pos, &target_pos, &up), light_pos)
     };
-    let light_pos = glm::Vec4::from([1.0, 1.0, 0.0, 1.0]);
-    let transview = view * transform;
-    let normal_matrix = glm::transpose(&glm::inverse(&transview));
-    // eprintln!("{:.2}", normal_matrix);
+    // let light_pos = glm::Vec4::from([1.0, 1.0, 0.0, 1.0]);
+    eprintln!("{:.2}", transform);
+
+    let modelview = view * transform;
     
 
 
@@ -69,10 +74,11 @@ pub fn display_model(m: mesh::MeshData){
     }
 
     let uniforms = uniform! {
-        transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&transview),
-        normal_matrix: *AsRef::<[[f32; 4]; 4]>::as_ref(&normal_matrix),
+        modelview: *AsRef::<[[f32; 4]; 4]>::as_ref(&modelview),
+        transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&transform),
+        normal_matrix: *AsRef::<[[f32; 3]; 3]>::as_ref(&normal_matrix),
         projection_matrix: *AsRef::<[[f32; 4]; 4]>::as_ref(&perspective),
-        light_pos: *AsRef::<[f32; 4]>::as_ref(&(transform * light_pos)),
+        light_pos: *AsRef::<[f32; 3]>::as_ref(&light_pos),
     };
 
     let params = glium::DrawParameters {
