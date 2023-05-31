@@ -7,9 +7,7 @@ pub enum ObjError {}
 
 impl Display for ObjError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            _ => "error",
-        })
+        f.write_str("error")
     }
 }
 

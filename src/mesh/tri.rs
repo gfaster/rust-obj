@@ -24,7 +24,7 @@ impl IndexMut<usize> for Tri {
 
 impl From<[Vertex; 3]> for Tri {
     fn from(value: [Vertex; 3]) -> Self {
-        Self { v: value.into() }
+        Self { v: value }
     }
 }
 

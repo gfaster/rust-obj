@@ -8,9 +8,7 @@ mod wavefrontobj;
 
 fn main() {
     let input = std::fs::read(
-        std::env::args()
-            .skip(1)
-            .next()
+        std::env::args().nth(1)
             .unwrap_or("./test_assets/bunny.obj".to_string()),
     )
     .expect("pass a valid file path");

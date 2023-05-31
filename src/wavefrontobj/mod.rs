@@ -4,7 +4,7 @@ use crate::glm::{Vec2, Vec3};
 use crate::mesh::{self, VertexIndexed};
 
 fn read_line(line: &str, obj: &mut mesh::MeshData) -> Result<(), ()> {
-    let noncomment = match line.splitn(2, '#').next() {
+    let noncomment = match line.split('#').next() {
         None => line,
         Some(s) => s,
     };
@@ -19,7 +19,7 @@ fn read_line(line: &str, obj: &mut mesh::MeshData) -> Result<(), ()> {
             obj.add_tri(parse_face(&tokens).ok_or(())?).map_err(|_| ())?;
         },
         "v" => {
-            obj.add_vertex_pos(parse_vec3(&tokens).ok_or(())?.into());
+            obj.add_vertex_pos(parse_vec3(&tokens).ok_or(())?);
         },
         "vn" => {
             obj.add_vertex_normal(parse_vec3(&tokens).ok_or(())?);
@@ -36,12 +36,11 @@ fn read_line(line: &str, obj: &mut mesh::MeshData) -> Result<(), ()> {
 fn parse_vec3(tokens: &[&str]) -> Option<Vec3> {
     // first index is the type - ignored by this function
     tokens
-        .into_iter()
+        .iter()
         .skip(1)
         .map(|t| t.parse().ok())
         .collect::<Option<Vec<f32>>>()
-        .map(|v| TryInto::<[f32; 3]>::try_into(v).ok())
-        .flatten()
+        .and_then(|v| TryInto::<[f32; 3]>::try_into(v).ok())
         .map(Into::into)
 }
 
@@ -51,13 +50,12 @@ fn parse_texture_coords(tokens: &[&str]) -> Option<Vec2> {
         return None;
     }
     tokens
-        .into_iter()
+        .iter()
         .skip(1)
         .take(2)
         .map(|t| t.parse().ok())
         .collect::<Option<Vec<f32>>>()
-        .map(|v| TryInto::<[f32; 2]>::try_into(v).ok())
-        .flatten()
+        .and_then(|v| TryInto::<[f32; 2]>::try_into(v).ok())
         .map(Into::into)
 }
 
@@ -104,7 +102,7 @@ pub fn read_obj(buf: &mut impl BufRead) -> mesh::MeshData {
 
     while buf.read_line(&mut line).map_or(0, |x| x) != 0 {
         read_line(line.as_str(), &mut objmesh).unwrap_or_else(|_| {
-            if line.splitn(2, '#').next().map_or(false, |l| l.trim().len() > 0) {
+            if line.split('#').next().map_or(false, |l| !l.trim().is_empty()) {
                 eprintln!("Line could not be read: {:?}", line);
             }
         });

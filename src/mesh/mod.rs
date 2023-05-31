@@ -59,7 +59,7 @@ impl From<MeshData> for MeshDataBuffs {
             match added.get(&vert) {
                 Some(&idx) => ret.indices.push(idx as u32),
                 None => {
-                    added.insert(&vert, ret.verts.len());
+                    added.insert(vert, ret.verts.len());
                     ret.indices.push(ret.verts.len() as u32);
                     ret.verts.push(
                         value
@@ -71,7 +71,7 @@ impl From<MeshData> for MeshDataBuffs {
             };
         }
 
-        return ret;
+        ret
     }
 }
 
@@ -156,14 +156,14 @@ impl MeshData {
     /// returns a MeshError if any index is out of bounds
     fn deref_vertex(&self, vtx: &VertexIndexed) -> Result<VertexDeindex, MeshError> {
         Ok(VertexDeindex {
-            pos: self.v.get(vtx.pos as usize).ok_or_else(|| {
+            pos: self.v.get(vtx.pos as usize).ok_or({
                 MeshError::VertexPositionIndexInvalid {
                     tried: vtx.pos,
                     max: (self.v.len() - 1) as u32,
                 }
             })?,
             norm: match vtx.norm {
-                Some(vn) => Some(self.vn.get(vn as usize).ok_or_else(|| {
+                Some(vn) => Some(self.vn.get(vn as usize).ok_or({
                     MeshError::VertexNormalIndexInvalid {
                         tried: vn,
                         max: (self.vn.len() - 1) as u32,
@@ -172,7 +172,7 @@ impl MeshData {
                 None => None,
             },
             tex: match vtx.tex {
-                Some(vt) => Some(self.vt.get(vt as usize).ok_or_else(|| {
+                Some(vt) => Some(self.vt.get(vt as usize).ok_or({
                     MeshError::VertexTextureIndexInvalid {
                         tried: vt,
                         max: (self.vt.len() - 1) as u32,
@@ -209,7 +209,7 @@ impl MeshData {
         // https://stackoverflow.com/a/67078389
         // contribute to the centroid of the mesh
         let center = (vd[0].pos + vd[1].pos + vd[2].pos) / 4.0;
-        let volume = vd[0].pos.dot(&vd[1].pos.cross(&vd[2].pos)) / 6.0;
+        let volume = vd[0].pos.dot(&vd[1].pos.cross(vd[2].pos)) / 6.0;
         self.running_center += center * volume;
         self.running_volume += volume;
 
@@ -228,7 +228,7 @@ impl MeshData {
         self.deref_vertex(
             self.f
                 .get(vtx_idx)
-                .ok_or_else(|| MeshError::TriangleIndexInvalid {
+                .ok_or(MeshError::TriangleIndexInvalid {
                     tried: tri_idx as u32,
                     max: self.f.len() as u32 / 3,
                 })?,
@@ -273,7 +273,7 @@ impl MeshData {
 
     pub fn edges(&self) -> MeshEdgeIterator<'_> {
         MeshEdgeIterator {
-            mesh: &self,
+            mesh: self,
             tri_index: 0,
             vtx_index: 0,
         }
@@ -281,7 +281,7 @@ impl MeshData {
 
     pub fn tris(&self) -> MeshTriIterator<'_> {
         MeshTriIterator {
-            mesh: &self,
+            mesh: self,
             tri_index: 0,
         }
     }
