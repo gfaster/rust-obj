@@ -5,6 +5,7 @@ mod error;
 mod grender;
 mod mesh;
 mod wavefrontobj;
+mod depth_classify;
 
 fn main() {
     let input = std::fs::read(
