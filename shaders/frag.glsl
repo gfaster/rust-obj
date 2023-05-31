@@ -16,8 +16,8 @@ uniform vec3 light_pos;
 void main()
 {
     vec3 base_color = vec3(1.0f, 0.0f, 0.0f);
-    float spec_strength = 0.5f;
-    float ambient_strength = 0.025f;
+    float spec_strength = 0.1f;
+    float ambient_strength = 0.05f;
 
     vec3 norm = normalize(v_fragNorm);
     vec3 light_dir = normalize(light_pos - v_fragPos);
@@ -30,12 +30,5 @@ void main()
     vec3 spec_color = pow(spec, 32) * vec3(1.0f) * spec_strength;
     vec3 ambient_color = base_color * ambient_strength;
 
- //    if (dot(v_fragNorm, vec3(0.0f, 0.0f, 1.0f)) < 0) {
-	// FragColor = vec4(1.0f); 
- //    } else {
-	// FragColor = vec4(diff_color + spec_color + ambient_color, 1.0f); 
- //    }
-
     FragColor = vec4(diff_color + spec_color + ambient_color, 1.0f); 
-    // FragColor = vec4(spec_color, 1.0f); 
 }

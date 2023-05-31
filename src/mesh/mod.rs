@@ -3,70 +3,73 @@
 use std::collections::HashMap;
 
 mod tri;
+pub use glm::{Vec2, Vec3};
 pub use tri::*;
-pub use glm::{Vec3, Vec2};
-
-
-
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
 pub struct VertexIndexed {
     pub pos: u32,
     pub norm: Option<u32>,
-    pub tex: Option<u32>
+    pub tex: Option<u32>,
 }
 
 struct VertexDeindex<'a> {
     pub pos: &'a Vec3,
     pub norm: Option<&'a Vec3>,
-    pub tex: Option<&'a Vec2>
+    pub tex: Option<&'a Vec2>,
 }
 
 #[derive(Debug)]
 pub struct Vertex {
     pub pos: Vec3,
     pub normal: Vec3,
-    pub tex: Vec2
+    pub tex: Vec2,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct GlVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
-    pub tex: [f32; 2]
+    pub tex: [f32; 2],
 }
 
 impl From<Vertex> for GlVertex {
     fn from(value: Vertex) -> Self {
-        GlVertex { 
-            position: value.pos.into(), 
-            normal: value.normal.into(), 
-            tex: value.tex.into() 
+        GlVertex {
+            position: value.pos.into(),
+            normal: value.normal.into(),
+            tex: value.tex.into(),
         }
     }
 }
 
 pub struct MeshDataBuffs {
     pub verts: Vec<GlVertex>,
-    pub indices: Vec<u32>
+    pub indices: Vec<u32>,
 }
 
 impl From<MeshData> for MeshDataBuffs {
     fn from(value: MeshData) -> Self {
         let mut added: HashMap<&VertexIndexed, usize> = Default::default();
-        let mut ret: Self = Self{verts: vec![], indices: vec![]};
+        let mut ret: Self = Self {
+            verts: vec![],
+            indices: vec![],
+        };
         for (i, vert) in value.f.iter().enumerate() {
             match added.get(&vert) {
                 Some(&idx) => ret.indices.push(idx as u32),
                 None => {
                     added.insert(&vert, ret.verts.len());
                     ret.indices.push(ret.verts.len() as u32);
-                    ret.verts.push(value.get_vertex(i)
-                        .expect("indexed wrong in enumeration")
-                        .into());
+                    ret.verts.push(
+                        value
+                            .get_vertex(i)
+                            .expect("indexed wrong in enumeration")
+                            .into(),
+                    );
                 }
             };
-        };
+        }
 
         return ret;
     }
@@ -80,21 +83,21 @@ pub struct MeshData {
 
     normalize_factor_sq: f32,
     running_center: Vec3,
-    running_volume: f32
+    running_volume: f32,
 }
 
 #[derive(Debug)]
 pub enum MeshError {
-    VertexPositionIndexInvalid {tried: u32, max: u32},
-    VertexNormalIndexInvalid {tried: u32, max: u32},
-    VertexTextureIndexInvalid {tried: u32, max: u32},
-    TriangleIndexInvalid {tried: u32, max: u32},
-    TriangleVertexIndexInvalid {tried: u32}
+    VertexPositionIndexInvalid { tried: u32, max: u32 },
+    VertexNormalIndexInvalid { tried: u32, max: u32 },
+    VertexTextureIndexInvalid { tried: u32, max: u32 },
+    TriangleIndexInvalid { tried: u32, max: u32 },
+    TriangleVertexIndexInvalid { tried: u32 },
 }
 
 impl MeshData {
     pub fn new() -> Self {
-        MeshData { 
+        MeshData {
             v: vec![],
             vn: vec![],
             vt: vec![],
@@ -102,12 +105,12 @@ impl MeshData {
 
             normalize_factor_sq: 0.0,
             running_center: Vec3::from([0.0, 0.0, 0.0]),
-            running_volume: 0.0
+            running_volume: 0.0,
         }
     }
 
     /// adds a new vertex position, and returns the index
-    /// this function is unaware of duplicates - it's up 
+    /// this function is unaware of duplicates - it's up
     /// to the caller to be efficent with memory
     pub fn add_vertex_pos(&mut self, pos: Vec3) -> usize {
         if pos.magnitude_squared() > self.normalize_factor_sq {
@@ -130,48 +133,59 @@ impl MeshData {
         for v in self.v.iter_mut() {
             *v -= centroid;
         }
-        self.running_center = Vec3::from([0.0, 0.0, 0.0]); 
+        self.running_center = Vec3::from([0.0, 0.0, 0.0]);
     }
 
     /// adds a new vertex normal, and returns the index
-    /// this function is unaware of duplicates - it's up 
+    /// this function is unaware of duplicates - it's up
     /// to the caller to be efficent with memory
     pub fn add_vertex_normal(&mut self, norm: Vec3) -> usize {
         self.vn.push(norm);
         self.vn.len() - 1
-    } 
+    }
 
     /// adds a new vertex texture coordinate, and returns the index
-    /// this function is unaware of duplicates - it's up 
+    /// this function is unaware of duplicates - it's up
     /// to the caller to be efficent with memory
     pub fn add_vertex_uv(&mut self, uv: Vec2) -> usize {
         self.vt.push(uv);
         self.vt.len() - 1
-    } 
+    }
 
     /// gets references to the actual Vec3 comprising verticies
     /// returns a MeshError if any index is out of bounds
     fn deref_vertex(&self, vtx: &VertexIndexed) -> Result<VertexDeindex, MeshError> {
-        Ok (VertexDeindex { 
-            pos: self.v.get(vtx.pos as usize)
-                .ok_or_else(|| MeshError::VertexPositionIndexInvalid { tried: vtx.pos, max: (self.v.len() - 1) as u32 })?,
+        Ok(VertexDeindex {
+            pos: self.v.get(vtx.pos as usize).ok_or_else(|| {
+                MeshError::VertexPositionIndexInvalid {
+                    tried: vtx.pos,
+                    max: (self.v.len() - 1) as u32,
+                }
+            })?,
             norm: match vtx.norm {
-                Some(vn) => Some(self.vn.get(vn as usize)
-                    .ok_or_else(|| MeshError::VertexNormalIndexInvalid { tried: vn, max: (self.vn.len() - 1) as u32})?),
-                None => None
+                Some(vn) => Some(self.vn.get(vn as usize).ok_or_else(|| {
+                    MeshError::VertexNormalIndexInvalid {
+                        tried: vn,
+                        max: (self.vn.len() - 1) as u32,
+                    }
+                })?),
+                None => None,
             },
             tex: match vtx.tex {
-                Some(vt) => Some(self.vt.get(vt as usize)
-                    .ok_or_else(|| MeshError::VertexTextureIndexInvalid { tried: vt, max: (self.vt.len() - 1) as u32})?),
-                None => None
-            }
+                Some(vt) => Some(self.vt.get(vt as usize).ok_or_else(|| {
+                    MeshError::VertexTextureIndexInvalid {
+                        tried: vt,
+                        max: (self.vt.len() - 1) as u32,
+                    }
+                })?),
+                None => None,
+            },
         })
     }
 
-
     /// add a single vertex to the index buffer
-    /// use of the function is discuraged because 
-    /// in the case of failure part way through 
+    /// use of the function is discuraged because
+    /// in the case of failure part way through
     /// adding a polygon, the buffer will have been
     /// already updated
     pub fn add_tri_vertex(&mut self, vtx: VertexIndexed) -> Result<(), MeshError> {
@@ -184,17 +198,18 @@ impl MeshData {
 
     /// adds a tri to the index buffer
     pub fn add_tri(&mut self, vtxs: [VertexIndexed; 3]) -> Result<usize, MeshError> {
-        // this is our validation, if the triangle is invalid, we don't want 
+        // this is our validation, if the triangle is invalid, we don't want
         // to have to attempt state rollback.
         // I don't like that this requires an allocation though
-        let vd = vtxs.iter()
+        let vd = vtxs
+            .iter()
             .map(|vtx| self.deref_vertex(vtx))
-            .collect::<Result<Vec<_>,_>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
         // https://stackoverflow.com/a/67078389
         // contribute to the centroid of the mesh
         let center = (vd[0].pos + vd[1].pos + vd[2].pos) / 4.0;
-        let volume = vd[0].pos.dot(&vd[1].pos.cross( &vd[2].pos)) / 6.0;
+        let volume = vd[0].pos.dot(&vd[1].pos.cross(&vd[2].pos)) / 6.0;
         self.running_center += center * volume;
         self.running_volume += volume;
 
@@ -204,22 +219,27 @@ impl MeshData {
 
     fn deref_tri_vtx(&self, tri_idx: usize, tri_vtx_idx: u8) -> Result<VertexDeindex, MeshError> {
         if tri_vtx_idx > 2 {
-            return Err(MeshError::TriangleVertexIndexInvalid { tried: tri_vtx_idx as u32})
+            return Err(MeshError::TriangleVertexIndexInvalid {
+                tried: tri_vtx_idx as u32,
+            });
         };
 
         let vtx_idx = tri_idx * 3 + tri_vtx_idx as usize;
-        self.deref_vertex(self.f.get(vtx_idx)
-            .ok_or_else(|| MeshError::TriangleIndexInvalid { 
-                tried: tri_idx as u32,
-                max: self.f.len() as u32 / 3 
-            })?)
+        self.deref_vertex(
+            self.f
+                .get(vtx_idx)
+                .ok_or_else(|| MeshError::TriangleIndexInvalid {
+                    tried: tri_idx as u32,
+                    max: self.f.len() as u32 / 3,
+                })?,
+        )
     }
 
     fn verticies_from_tri_idx(&self, idx: usize) -> Result<[VertexDeindex; 3], MeshError> {
         Ok([
             self.deref_tri_vtx(idx, 0)?,
             self.deref_tri_vtx(idx, 1)?,
-            self.deref_tri_vtx(idx, 2)?
+            self.deref_tri_vtx(idx, 2)?,
         ])
     }
 
@@ -232,7 +252,6 @@ impl MeshData {
         Ok(edge1.cross(&edge2).normalize())
     }
 
-
     pub fn get_vertex(&self, idx: usize) -> Result<Vertex, MeshError> {
         let tri_idx = idx / 3;
         let tri_vertices = self.verticies_from_tri_idx(tri_idx)?;
@@ -240,33 +259,30 @@ impl MeshData {
         // let p1 = &tri_vertices[(idx + 1) % 3];
         // let p2 = &tri_vertices[(idx + 2) % 3];
 
-
         let normal = match p.norm {
             None => self.calculate_tri_normal(tri_idx)?,
-            Some(n) => *n
+            Some(n) => *n,
         };
 
-        Ok(
-            Vertex { 
-                pos: *p.pos,
-                normal,
-                tex: *p.tex.unwrap_or(&Vec2::from([0.0f32, 0.0f32]))
-            }
-        )
+        Ok(Vertex {
+            pos: *p.pos,
+            normal,
+            tex: *p.tex.unwrap_or(&Vec2::from([0.0f32, 0.0f32])),
+        })
     }
 
     pub fn edges(&self) -> MeshEdgeIterator<'_> {
-        MeshEdgeIterator { 
-            mesh: &self, 
-            tri_index: 0, 
-            vtx_index: 0 
+        MeshEdgeIterator {
+            mesh: &self,
+            tri_index: 0,
+            vtx_index: 0,
         }
     }
 
     pub fn tris(&self) -> MeshTriIterator<'_> {
-        MeshTriIterator { 
-            mesh: &self, 
-            tri_index: 0 
+        MeshTriIterator {
+            mesh: &self,
+            tri_index: 0,
         }
     }
 }
@@ -274,7 +290,7 @@ impl MeshData {
 pub struct MeshEdgeIterator<'a> {
     mesh: &'a MeshData,
     tri_index: usize,
-    vtx_index: usize
+    vtx_index: usize,
 }
 
 impl<'a> Iterator for MeshEdgeIterator<'a> {
@@ -284,8 +300,14 @@ impl<'a> Iterator for MeshEdgeIterator<'a> {
             return None;
         };
         let ret = Edge {
-            start: self.mesh.get_vertex(3 * self.tri_index + self.vtx_index).unwrap(),
-            end: self.mesh.get_vertex(3 * self.tri_index + ((self.vtx_index  + 1 ) % 3)).unwrap(),
+            start: self
+                .mesh
+                .get_vertex(3 * self.tri_index + self.vtx_index)
+                .unwrap(),
+            end: self
+                .mesh
+                .get_vertex(3 * self.tri_index + ((self.vtx_index + 1) % 3))
+                .unwrap(),
         };
 
         self.vtx_index = (self.vtx_index + 1) % 3;
@@ -300,9 +322,8 @@ impl<'a> Iterator for MeshEdgeIterator<'a> {
 #[derive(Debug)]
 pub struct Edge {
     pub start: Vertex,
-    pub end: Vertex
+    pub end: Vertex,
 }
-
 
 pub struct MeshTriIterator<'a> {
     mesh: &'a MeshData,
@@ -316,8 +337,16 @@ impl<'a> Iterator for MeshTriIterator<'a> {
             return None;
         };
 
-        let retv = (0..3).map(|i| self.mesh.get_vertex(3 * self.tri_index + i).expect("valid index")).collect::<Vec<Vertex>>();
-        let ret = <Vec<_> as TryInto<[Vertex; 3]>>::try_into(retv).expect("valid_try").into();
+        let retv = (0..3)
+            .map(|i| {
+                self.mesh
+                    .get_vertex(3 * self.tri_index + i)
+                    .expect("valid index")
+            })
+            .collect::<Vec<Vertex>>();
+        let ret = <Vec<_> as TryInto<[Vertex; 3]>>::try_into(retv)
+            .expect("valid_try")
+            .into();
 
         self.tri_index += 1;
 
@@ -327,7 +356,7 @@ impl<'a> Iterator for MeshTriIterator<'a> {
 
 struct MeshVertexIterator<'a> {
     mesh: &'a MeshData,
-    idx: usize
+    idx: usize,
 }
 
 impl<'a> Iterator for MeshVertexIterator<'a> {

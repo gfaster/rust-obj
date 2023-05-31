@@ -3,13 +3,12 @@ use std::fmt::Display;
 
 #[derive(Debug)]
 #[allow(dead_code)]
-pub enum ObjError {
-}
+pub enum ObjError {}
 
 impl Display for ObjError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            _ => "error"
+            _ => "error",
         })
     }
 }

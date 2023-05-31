@@ -1,10 +1,11 @@
 use std::ops::{Index, IndexMut};
 
 use super::Vertex;
+use crate::mesh;
 
 #[derive(Debug)]
 pub struct Tri {
-    v: [Vertex; 3]
+    v: [Vertex; 3],
 }
 
 impl Index<usize> for Tri {
@@ -32,3 +33,13 @@ impl From<Tri> for [Vertex; 3] {
         value.v
     }
 }
+
+impl Tri {
+    pub fn calculate_normal(&self) -> mesh::Vec3 {
+        let v = &self.v;
+        let edge1 = v[0].pos - v[1].pos;
+        let edge2 = v[1].pos - v[2].pos;
+        edge1.cross(&edge2).normalize()
+    }
+}
+
