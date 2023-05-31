@@ -74,8 +74,8 @@ fn parse_face(tokens: &[&str]) -> Option<[VertexIndexed; 3]> {
             let mut v = t.split('/').map(|sv| sv.parse::<u32>().ok().map(|i| i - 1));
 
             let pos = v.next()??;
-            let tex = v.next()?;
-            let norm = v.next()?;
+            let tex = v.next().flatten();
+            let norm = v.next().flatten();
             Some(VertexIndexed { pos, tex, norm })
         })
         .collect::<Option<Vec<_>>>()?;
