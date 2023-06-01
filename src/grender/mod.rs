@@ -4,6 +4,18 @@ use crate::mesh;
 use crate::mesh::GlVertex;
 use glium::{glutin, implement_vertex, uniform, IndexBuffer, Program, Surface, VertexBuffer};
 
+mod controls;
+
+pub mod consts {
+    use nalgebra::ArrayStorage;
+    pub const FORWARD: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, 0.0, -1.0f32]]));
+    pub const BACKWARD: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, 0.0, 1.0f32]]));
+    pub const UP: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, 1.0, 0.0f32]]));
+    pub const DOWN: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, -1.0, 0.0f32]]));
+    pub const RIGHT: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[1.0, 0.0, 0.0f32]]));
+    pub const LEFT: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[-1.0, 0.0, 0.0f32]]));
+}
+
 implement_vertex!(GlVertex, position, normal, tex);
 
 #[allow(unused_mut, unused_variables)]
@@ -47,20 +59,9 @@ pub fn display_model(m: mesh::MeshData) {
         [0.0, 0.0, scale, 0.0],
         [0.0, 0.0, 0.0, 1.0f32],
     ]);
-
-    let normal_matrix = glm::transpose(&glm::inverse(&glm::mat4_to_mat3(&transform)));
-
-    let (view, light_pos) = {
-        let target_pos = center;
-        let eye_pos = target_pos + glm::Vec3::from([0.0, 0.0, 3.0f32]);
-        let up = glm::Vec3::from([0.0, 1.0, 0.0f32]);
-        let light_pos = eye_pos + glm::Vec3::from([2.0, 2.0, 0.0f32]);
-        (glm::look_at(&eye_pos, &target_pos, &up), light_pos)
-    };
-    // let light_pos = glm::Vec4::from([1.0, 1.0, 0.0, 1.0]);
     eprintln!("{:.2}", transform);
+    let model_normal_matrix = glm::transpose(&glm::inverse(&glm::mat4_to_mat3(&transform)));
 
-    let modelview = view * transform;
 
     for v in &buffers.verts {
         // let pos = v.position;
@@ -70,13 +71,6 @@ pub fn display_model(m: mesh::MeshData) {
         // eprintln!("vnormal: {}", glm::Vec3::from(v.normal));
     }
 
-    let uniforms = uniform! {
-        modelview: *AsRef::<[[f32; 4]; 4]>::as_ref(&modelview),
-        transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&transform),
-        normal_matrix: *AsRef::<[[f32; 3]; 3]>::as_ref(&normal_matrix),
-        projection_matrix: *AsRef::<[[f32; 4]; 4]>::as_ref(&perspective),
-        light_pos: *AsRef::<[f32; 3]>::as_ref(&light_pos),
-    };
 
     let params = glium::DrawParameters {
         depth: glium::Depth {
@@ -95,9 +89,24 @@ pub fn display_model(m: mesh::MeshData) {
     )
     .unwrap();
 
+    let mut camera = controls::Camera::new();
+
     event_loop.run(move |ev, _, control_flow| {
+        let view = camera.get_transform();
+        let modelview = view * transform;
+        let light_pos = camera.pos + glm::Vec3::from([2.0, 2.0, 0.0f32]);
+
+
+        let uniforms = uniform! {
+            modelview: *AsRef::<[[f32; 4]; 4]>::as_ref(&modelview),
+            transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&transform),
+            normal_matrix: *AsRef::<[[f32; 3]; 3]>::as_ref(&model_normal_matrix),
+            projection_matrix: *AsRef::<[[f32; 4]; 4]>::as_ref(&perspective),
+            light_pos: *AsRef::<[f32; 3]>::as_ref(&light_pos),
+        };
+
         let mut target = display.draw();
-        target.clear_color_and_depth((0.0, 0.0, 1.0, 1.0), 1.0);
+        target.clear_color_and_depth((0.3, 0.3, 0.5, 1.0), 1.0);
         target
             .draw(&vbuffer, &ibuffer, &program, &uniforms, &params)
             .unwrap();
@@ -113,6 +122,25 @@ pub fn display_model(m: mesh::MeshData) {
                     *control_flow = glutin::event_loop::ControlFlow::Exit;
                     return;
                 }
+                _ => return,
+            },
+            glutin::event::Event::DeviceEvent { event, .. } => match event {
+                glutin::event::DeviceEvent::MouseMotion { delta } => {
+                    // yes, this is swapped
+                    controls::mouse_move(&mut camera, &(-delta.1 as f32, -delta.0 as f32));
+                    return;
+                },
+                glutin::event::DeviceEvent::Key(k) => {
+                    if let Some(vk) = k.virtual_keycode {
+                        match vk {
+                            glutin::event::VirtualKeyCode::Q => {
+                                *control_flow = glutin::event_loop::ControlFlow::Exit;
+                                return;
+                            }
+                            _ => return
+                        }
+                    }
+                },
                 _ => return,
             },
             _ => (),
