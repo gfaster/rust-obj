@@ -31,12 +31,15 @@ impl Camera {
     /// will move radians equal to the magnitiude of `delta` in the local direction of the
     /// components
     pub fn orbit_target(&mut self, delta: &Vec2) {
-        let axis = glm::quat_rotate_vec3(&self.get_quat(), &glm::vec2_to_vec3(&delta)).normalize();
-        let quat = glm::quat_rotate_normalized_axis(&self.get_quat(), delta.magnitude(), &axis);
-        eprintln!("{}", quat);
-
-        let new_rel_pos = glm::quat_rotate_vec3(&quat, &self.relative_pos());
+        
+        let rel_pos = self.relative_pos();
+        let horiz_normal = UP.cross(&rel_pos);
+        let normal = glm::vec3(horiz_normal.x * delta.y, delta.x, horiz_normal.z * delta.y);
+        let angle = delta.magnitude();
+        let new_rel_pos = glm::rotate_vec3(&rel_pos, angle, &normal);
+        // let new_rel_pos = glm::rotate_y_vec3(&self.relative_pos(), delta.x);
         self.pos = self.target + new_rel_pos;
+
         eprintln!("{}", self.pos);
     }
 }
@@ -48,6 +51,6 @@ impl Default for Camera {
 }
 
 pub fn mouse_move(cam: &mut Camera, delta: &(f32, f32)) {
-    let vdelta: Vec2 = Into::<Vec2>::into([-delta.1, -delta.0]) * 0.05;
+    let vdelta: Vec2 = Into::<Vec2>::into([delta.1, delta.0]) * 0.005;
     cam.orbit_target(&vdelta);
 }
