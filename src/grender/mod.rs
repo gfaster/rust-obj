@@ -2,7 +2,7 @@ use std::fs;
 
 use crate::mesh;
 use crate::mesh::GlVertex;
-use glium::{glutin, implement_vertex, uniform, IndexBuffer, Program, Surface, VertexBuffer};
+use glium::{glutin::{self, window::CursorGrabMode}, implement_vertex, uniform, IndexBuffer, Program, Surface, VertexBuffer, DrawParameters, program::ShaderStage, framebuffer::{SimpleFrameBuffer, self}};
 
 mod controls;
 
@@ -14,6 +14,28 @@ pub mod consts {
     pub const DOWN: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, -1.0, 0.0f32]]));
     pub const RIGHT: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[1.0, 0.0, 0.0f32]]));
     pub const LEFT: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[-1.0, 0.0, 0.0f32]]));
+}
+
+#[derive(PartialEq, Eq)]
+enum DrawMode {
+    DepthBuffer,
+    Render,
+    Wire
+}
+
+enum FragSubroutine {
+    Shaded,
+    DepthBuffer,
+}
+
+impl FragSubroutine {
+    fn as_str(&self) -> &'static str {
+        match self {
+            FragSubroutine::Shaded => "shaded",
+            FragSubroutine::DepthBuffer => "depth_buffer",
+            // FragSubroutine::Unshaded => "unshaded",
+        }
+    }
 }
 
 implement_vertex!(GlVertex, position, normal, tex);
@@ -72,7 +94,7 @@ pub fn display_model(m: mesh::MeshData) {
     }
 
 
-    let params = glium::DrawParameters {
+    let mut params = glium::DrawParameters {
         depth: glium::Depth {
             test: glium::draw_parameters::DepthTest::IfLess,
             write: true,
@@ -88,8 +110,13 @@ pub fn display_model(m: mesh::MeshData) {
         &buffers.indices,
     )
     .unwrap();
+    // let fbuffer = framebuffer::DepthRenderBuffer::new(&display, glium::texture::DepthFormat::I24, aspect.0, aspect.1).unwrap();
+    // let color_buffer = framebuffer::
+    // let fbuffer = framebuffer::MultiOutputFrameBuffer::with_depth_buffer(&display, color_attachments, depth)
 
     let mut camera = controls::Camera::new();
+    let mut mode = DrawMode::Render;
+    let mut shader_subroutine = FragSubroutine::Shaded;
 
     event_loop.run(move |ev, _, control_flow| {
         let view = camera.get_transform();
@@ -103,6 +130,7 @@ pub fn display_model(m: mesh::MeshData) {
             normal_matrix: *AsRef::<[[f32; 3]; 3]>::as_ref(&model_normal_matrix),
             projection_matrix: *AsRef::<[[f32; 4]; 4]>::as_ref(&perspective),
             light_pos: *AsRef::<[f32; 3]>::as_ref(&light_pos),
+            shading_routine: (shader_subroutine.as_str(), ShaderStage::Fragment)
         };
 
         let mut target = display.draw();
@@ -120,30 +148,79 @@ pub fn display_model(m: mesh::MeshData) {
             glutin::event::Event::WindowEvent { event, .. } => match event {
                 glutin::event::WindowEvent::CloseRequested => {
                     *control_flow = glutin::event_loop::ControlFlow::Exit;
-                    return;
                 }
-                _ => return,
+                glutin::event::WindowEvent::Focused(b) => {
+                    handle_window_focus(b, &display);
+                },
+                _ => (),
             },
             glutin::event::Event::DeviceEvent { event, .. } => match event {
                 glutin::event::DeviceEvent::MouseMotion { delta } => {
                     // yes, this is swapped
                     controls::mouse_move(&mut camera, &(-delta.1 as f32, -delta.0 as f32));
-                    return;
                 },
                 glutin::event::DeviceEvent::Key(k) => {
                     if let Some(vk) = k.virtual_keycode {
                         match vk {
                             glutin::event::VirtualKeyCode::Q => {
                                 *control_flow = glutin::event_loop::ControlFlow::Exit;
-                                return;
                             }
-                            _ => return
+                            glutin::event::VirtualKeyCode::W => {
+                                change_draw_mode(&mut mode, DrawMode::Wire, &mut shader_subroutine, &mut params)
+                            }
+                            glutin::event::VirtualKeyCode::R => {
+                                change_draw_mode(&mut mode, DrawMode::Render, &mut shader_subroutine, &mut params)
+                            }
+                            glutin::event::VirtualKeyCode::D => {
+                                change_draw_mode(&mut mode, DrawMode::DepthBuffer, &mut shader_subroutine, &mut params)
+                            }
+                            _ => ()
                         }
                     }
                 },
-                _ => return,
+                _ => (),
             },
             _ => (),
         }
     });
+}
+
+fn handle_window_focus(focused: bool, display: &glium::Display) {
+    if focused {
+        display.gl_window().window().set_cursor_grab(CursorGrabMode::Confined)
+            .or_else(|_e| display.gl_window().window().set_cursor_grab(CursorGrabMode::Locked))
+            .unwrap();
+        display.gl_window().window().set_cursor_visible(false);
+    } else {
+        display.gl_window().window().set_cursor_grab(CursorGrabMode::None) .unwrap();
+        display.gl_window().window().set_cursor_visible(true);
+    }
+}
+
+fn change_draw_mode(current: &mut DrawMode, new: DrawMode, shader_param: &mut FragSubroutine, params: &mut DrawParameters) {
+    match (&current, &new) {
+        (DrawMode::DepthBuffer, DrawMode::Render) => {
+            *shader_param = FragSubroutine::Shaded;
+        },
+        (DrawMode::DepthBuffer, DrawMode::Wire) => {
+            *shader_param = FragSubroutine::Shaded;
+            params.polygon_mode = glium::PolygonMode::Line;
+        },
+        (DrawMode::Render, DrawMode::DepthBuffer) => {
+            *shader_param = FragSubroutine::DepthBuffer;
+        },
+        (DrawMode::Render, DrawMode::Wire) => {
+            params.polygon_mode = glium::PolygonMode::Line;
+        },
+        (DrawMode::Wire, DrawMode::DepthBuffer) => {
+            params.polygon_mode = glium::PolygonMode::Fill;
+            *shader_param = FragSubroutine::DepthBuffer;
+        },
+        (DrawMode::Wire, DrawMode::Render) => {
+            params.polygon_mode = glium::PolygonMode::Fill;
+        },
+
+        _ => () // identity
+    }
+    *current = new;
 }

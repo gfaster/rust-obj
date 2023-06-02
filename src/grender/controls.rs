@@ -39,8 +39,6 @@ impl Camera {
         let new_rel_pos = glm::rotate_vec3(&rel_pos, angle, &normal);
         // let new_rel_pos = glm::rotate_y_vec3(&self.relative_pos(), delta.x);
         self.pos = self.target + new_rel_pos;
-
-        eprintln!("{}", self.pos);
     }
 }
 
