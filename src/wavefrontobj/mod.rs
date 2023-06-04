@@ -16,22 +16,22 @@ fn read_line(line: &str, obj: &mut mesh::MeshData) -> Result<(), ()> {
 
     match tokens[0] {
         "f" => {
-            obj.add_tri(parse_face(&tokens).ok_or(())?).map_err(|_| ())?;
-        },
+            obj.add_tri(parse_face(&tokens).ok_or(())?)
+                .map_err(|_| ())?;
+        }
         "v" => {
             obj.add_vertex_pos(parse_vec3(&tokens).ok_or(())?);
-        },
+        }
         "vn" => {
             obj.add_vertex_normal(parse_vec3(&tokens).ok_or(())?);
-        },
+        }
         "vt" => {
             obj.add_vertex_uv(parse_texture_coords(&tokens).ok_or(())?);
-        },
+        }
         _ => (),
     };
     Ok(())
 }
-
 
 fn parse_vec3(tokens: &[&str]) -> Option<Vec3> {
     // first index is the type - ignored by this function
@@ -102,7 +102,11 @@ pub fn read_obj(buf: &mut impl BufRead) -> mesh::MeshData {
 
     while buf.read_line(&mut line).map_or(0, |x| x) != 0 {
         read_line(line.as_str(), &mut objmesh).unwrap_or_else(|_| {
-            if line.split('#').next().map_or(false, |l| !l.trim().is_empty()) {
+            if line
+                .split('#')
+                .next()
+                .map_or(false, |l| !l.trim().is_empty())
+            {
                 eprintln!("Line could not be read: {:?}", line);
             }
         });

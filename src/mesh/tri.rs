@@ -42,4 +42,3 @@ impl Tri {
         edge1.cross(&edge2).normalize()
     }
 }
-

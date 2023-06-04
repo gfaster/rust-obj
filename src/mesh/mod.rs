@@ -225,14 +225,10 @@ impl MeshData {
         };
 
         let vtx_idx = tri_idx * 3 + tri_vtx_idx as usize;
-        self.deref_vertex(
-            self.f
-                .get(vtx_idx)
-                .ok_or(MeshError::TriangleIndexInvalid {
-                    tried: tri_idx as u32,
-                    max: self.f.len() as u32 / 3,
-                })?,
-        )
+        self.deref_vertex(self.f.get(vtx_idx).ok_or(MeshError::TriangleIndexInvalid {
+            tried: tri_idx as u32,
+            max: self.f.len() as u32 / 3,
+        })?)
     }
 
     fn verticies_from_tri_idx(&self, idx: usize) -> Result<[VertexDeindex; 3], MeshError> {

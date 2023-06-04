@@ -3,15 +3,16 @@
 extern crate glium;
 extern crate nalgebra_glm as glm;
 
+mod depth_classify;
 mod error;
 mod grender;
 mod mesh;
 mod wavefrontobj;
-mod depth_classify;
 
 fn main() {
     let input = std::fs::read(
-        std::env::args().nth(1)
+        std::env::args()
+            .nth(1)
             .unwrap_or("./test_assets/bunny.obj".to_string()),
     )
     .expect("pass a valid file path");

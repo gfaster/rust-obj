@@ -2,7 +2,12 @@ use std::fs;
 
 use crate::mesh;
 use crate::mesh::GlVertex;
-use glium::{glutin::{self, window::CursorGrabMode, event::ElementState}, implement_vertex, uniform, IndexBuffer, Program, Surface, VertexBuffer, DrawParameters, program::ShaderStage};
+use glium::{
+    glutin::{self, event::ElementState, window::CursorGrabMode},
+    implement_vertex,
+    program::ShaderStage,
+    uniform, DrawParameters, IndexBuffer, Program, Surface, VertexBuffer,
+};
 
 use self::controls::Camera;
 
@@ -10,8 +15,10 @@ mod controls;
 
 pub mod consts {
     use nalgebra::ArrayStorage;
-    pub const FORWARD: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, 0.0, -1.0f32]]));
-    pub const BACKWARD: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, 0.0, 1.0f32]]));
+    pub const FORWARD: glm::Vec3 =
+        glm::Vec3::from_array_storage(ArrayStorage([[0.0, 0.0, -1.0f32]]));
+    pub const BACKWARD: glm::Vec3 =
+        glm::Vec3::from_array_storage(ArrayStorage([[0.0, 0.0, 1.0f32]]));
     pub const UP: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, 1.0, 0.0f32]]));
     pub const DOWN: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, -1.0, 0.0f32]]));
     pub const RIGHT: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[1.0, 0.0, 0.0f32]]));
@@ -22,7 +29,7 @@ pub mod consts {
 enum DrawMode {
     DepthBuffer,
     Render,
-    Wire
+    Wire,
 }
 
 enum FragSubroutine {
@@ -86,7 +93,6 @@ pub fn display_model(m: mesh::MeshData) {
     eprintln!("{:.2}", transform);
     let model_normal_matrix = glm::transpose(&glm::inverse(&glm::mat4_to_mat3(&transform)));
 
-
     for v in &buffers.verts {
         // let pos = v.position;
         // let pos4 = [pos[0], pos[1], pos[2], 1.0f32];
@@ -94,7 +100,6 @@ pub fn display_model(m: mesh::MeshData) {
 
         // eprintln!("vnormal: {}", glm::Vec3::from(v.normal));
     }
-
 
     let mut params = glium::DrawParameters {
         depth: glium::Depth {
@@ -121,7 +126,6 @@ pub fn display_model(m: mesh::MeshData) {
         let view = camera.get_transform();
         let modelview = view * transform;
         let light_pos = camera.pos + glm::Vec3::from([2.0, 2.0, 0.0f32]);
-
 
         let uniforms = uniform! {
             modelview: *AsRef::<[[f32; 4]; 4]>::as_ref(&modelview),
@@ -150,14 +154,14 @@ pub fn display_model(m: mesh::MeshData) {
                 }
                 glutin::event::WindowEvent::Focused(b) => {
                     handle_window_focus(b, &display);
-                },
+                }
                 _ => (),
             },
             glutin::event::Event::DeviceEvent { event, .. } => match event {
                 glutin::event::DeviceEvent::MouseMotion { delta } => {
                     // yes, this is swapped
                     controls::mouse_move(&mut camera, &(-delta.1 as f32, -delta.0 as f32));
-                },
+                }
                 glutin::event::DeviceEvent::Key(k) => {
                     if k.state == ElementState::Pressed {
                         if let Some(vk) = k.virtual_keycode {
@@ -165,26 +169,35 @@ pub fn display_model(m: mesh::MeshData) {
                                 glutin::event::VirtualKeyCode::Q => {
                                     *control_flow = glutin::event_loop::ControlFlow::Exit;
                                 }
-                                glutin::event::VirtualKeyCode::W => {
-                                    change_draw_mode(&mut mode, DrawMode::Wire, &mut shader_subroutine, &mut params)
-                                }
-                                glutin::event::VirtualKeyCode::R => {
-                                    change_draw_mode(&mut mode, DrawMode::Render, &mut shader_subroutine, &mut params)
-                                }
-                                glutin::event::VirtualKeyCode::D => {
-                                    change_draw_mode(&mut mode, DrawMode::DepthBuffer, &mut shader_subroutine, &mut params)
-                                }
+                                glutin::event::VirtualKeyCode::W => change_draw_mode(
+                                    &mut mode,
+                                    DrawMode::Wire,
+                                    &mut shader_subroutine,
+                                    &mut params,
+                                ),
+                                glutin::event::VirtualKeyCode::R => change_draw_mode(
+                                    &mut mode,
+                                    DrawMode::Render,
+                                    &mut shader_subroutine,
+                                    &mut params,
+                                ),
+                                glutin::event::VirtualKeyCode::D => change_draw_mode(
+                                    &mut mode,
+                                    DrawMode::DepthBuffer,
+                                    &mut shader_subroutine,
+                                    &mut params,
+                                ),
                                 glutin::event::VirtualKeyCode::P => {
-                                    match save_screenshot(&display, &camera) { 
+                                    match save_screenshot(&display, &camera) {
                                         Ok(p) => eprintln!("Saved screenshot to {:?}", p),
-                                        Err(e) => eprintln!("{}", e)
+                                        Err(e) => eprintln!("{}", e),
                                     };
                                 }
-                                _ => ()
+                                _ => (),
                             }
                         }
                     }
-                },
+                }
                 _ => (),
             },
             _ => (),
@@ -194,57 +207,108 @@ pub fn display_model(m: mesh::MeshData) {
 
 fn handle_window_focus(focused: bool, display: &glium::Display) {
     if focused {
-        display.gl_window().window().set_cursor_grab(CursorGrabMode::Confined)
-            .or_else(|_e| display.gl_window().window().set_cursor_grab(CursorGrabMode::Locked))
+        display
+            .gl_window()
+            .window()
+            .set_cursor_grab(CursorGrabMode::Confined)
+            .or_else(|_e| {
+                display
+                    .gl_window()
+                    .window()
+                    .set_cursor_grab(CursorGrabMode::Locked)
+            })
             .unwrap();
         display.gl_window().window().set_cursor_visible(false);
     } else {
-        display.gl_window().window().set_cursor_grab(CursorGrabMode::None) .unwrap();
+        display
+            .gl_window()
+            .window()
+            .set_cursor_grab(CursorGrabMode::None)
+            .unwrap();
         display.gl_window().window().set_cursor_visible(true);
     }
 }
 
-fn change_draw_mode(current: &mut DrawMode, new: DrawMode, shader_param: &mut FragSubroutine, params: &mut DrawParameters) {
+fn change_draw_mode(
+    current: &mut DrawMode,
+    new: DrawMode,
+    shader_param: &mut FragSubroutine,
+    params: &mut DrawParameters,
+) {
     match (&current, &new) {
         (DrawMode::DepthBuffer, DrawMode::Render) => {
             *shader_param = FragSubroutine::Shaded;
-        },
+        }
         (DrawMode::DepthBuffer, DrawMode::Wire) => {
             *shader_param = FragSubroutine::Shaded;
             params.polygon_mode = glium::PolygonMode::Line;
-        },
+        }
         (DrawMode::Render, DrawMode::DepthBuffer) => {
             *shader_param = FragSubroutine::DepthBuffer;
-        },
+        }
         (DrawMode::Render, DrawMode::Wire) => {
             params.polygon_mode = glium::PolygonMode::Line;
-        },
+        }
         (DrawMode::Wire, DrawMode::DepthBuffer) => {
             params.polygon_mode = glium::PolygonMode::Fill;
             *shader_param = FragSubroutine::DepthBuffer;
-        },
+        }
         (DrawMode::Wire, DrawMode::Render) => {
             params.polygon_mode = glium::PolygonMode::Fill;
-        },
+        }
 
-        _ => () // identity
+        _ => (), // identity
     }
     *current = new;
 }
 
-fn save_screenshot(display: &glium::Display, cam: &Camera) -> Result<String, Box<dyn std::error::Error>>{
-    use std::time;
+fn save_screenshot(
+    display: &glium::Display,
+    cam: &Camera,
+) -> Result<String, Box<dyn std::error::Error>> {
     use std::io::Write;
+    use std::time;
 
     let dir_path = format!("{}/Pictures/rust_obj", std::env::var("HOME")?);
-    let base_path = format!("{}/Pictures/rust_obj/{}", std::env::var("HOME")?, std::process::id());
-    let name = format!("{}.ppm", time::SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap().as_millis());
+    let base_path = format!(
+        "{}/Pictures/rust_obj/{}",
+        std::env::var("HOME")?,
+        std::process::id()
+    );
+    let name = format!(
+        "{}.ppm",
+        time::SystemTime::now()
+            .duration_since(time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
 
-    fs::create_dir(&dir_path).map_or_else(|e| if matches!(e.kind(), std::io::ErrorKind::AlreadyExists) { Ok(()) } else { Err(e) }, |_| Ok(()))?;
-    fs::create_dir(&base_path).map_or_else(|e| if matches!(e.kind(), std::io::ErrorKind::AlreadyExists) { Ok(()) } else { Err(e) }, |_| Ok(()))?;
+    fs::create_dir(&dir_path).map_or_else(
+        |e| {
+            if matches!(e.kind(), std::io::ErrorKind::AlreadyExists) {
+                Ok(())
+            } else {
+                Err(e)
+            }
+        },
+        |_| Ok(()),
+    )?;
+    fs::create_dir(&base_path).map_or_else(
+        |e| {
+            if matches!(e.kind(), std::io::ErrorKind::AlreadyExists) {
+                Ok(())
+            } else {
+                Err(e)
+            }
+        },
+        |_| Ok(()),
+    )?;
 
     let full_path = format!("{}/{}", &base_path, &name);
-    let mut file = fs::File::options().write(true).create_new(true).open(&full_path)?;
+    let mut file = fs::File::options()
+        .write(true)
+        .create_new(true)
+        .open(&full_path)?;
     let mut buffer = Vec::<u8>::new();
 
     let img: Vec<Vec<(u8, u8, u8, u8)>> = display.read_front_buffer()?;

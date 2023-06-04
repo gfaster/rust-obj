@@ -1,16 +1,19 @@
 use crate::glm;
 
-use glm::{Vec3, Mat4, Vec2};
 use super::consts::*;
+use glm::{Mat4, Vec2, Vec3};
 
 pub struct Camera {
     pub pos: Vec3,
-    pub target: Vec3
+    pub target: Vec3,
 }
 
 impl Camera {
     pub fn new() -> Self {
-        Self { pos: [0.0, 0.0, 3.0].into(), target: [0.0, 0.0, 0.0].into() }
+        Self {
+            pos: [0.0, 0.0, 3.0].into(),
+            target: [0.0, 0.0, 0.0].into(),
+        }
     }
 
     pub fn get_transform(&self) -> Mat4 {
@@ -31,7 +34,6 @@ impl Camera {
     /// will move radians equal to the magnitiude of `delta` in the local direction of the
     /// components
     pub fn orbit_target(&mut self, delta: &Vec2) {
-        
         let rel_pos = self.relative_pos();
         let horiz_normal = UP.cross(&rel_pos);
         let normal = glm::vec3(horiz_normal.x * delta.y, delta.x, horiz_normal.z * delta.y);
