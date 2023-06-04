@@ -21,6 +21,5 @@ void main()
   v_fragPos = vec3(transform * pos);
   v_texCoord = tex;
 
-
   gl_Position = projection_matrix * modelview * pos;
 }

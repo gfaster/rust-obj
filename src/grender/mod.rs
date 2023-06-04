@@ -2,7 +2,9 @@ use std::fs;
 
 use crate::mesh;
 use crate::mesh::GlVertex;
-use glium::{glutin::{self, window::CursorGrabMode}, implement_vertex, uniform, IndexBuffer, Program, Surface, VertexBuffer, DrawParameters, program::ShaderStage, framebuffer::{SimpleFrameBuffer, self}};
+use glium::{glutin::{self, window::CursorGrabMode, event::ElementState}, implement_vertex, uniform, IndexBuffer, Program, Surface, VertexBuffer, DrawParameters, program::ShaderStage};
+
+use self::controls::Camera;
 
 mod controls;
 
@@ -110,9 +112,6 @@ pub fn display_model(m: mesh::MeshData) {
         &buffers.indices,
     )
     .unwrap();
-    // let fbuffer = framebuffer::DepthRenderBuffer::new(&display, glium::texture::DepthFormat::I24, aspect.0, aspect.1).unwrap();
-    // let color_buffer = framebuffer::
-    // let fbuffer = framebuffer::MultiOutputFrameBuffer::with_depth_buffer(&display, color_attachments, depth)
 
     let mut camera = controls::Camera::new();
     let mut mode = DrawMode::Render;
@@ -160,21 +159,29 @@ pub fn display_model(m: mesh::MeshData) {
                     controls::mouse_move(&mut camera, &(-delta.1 as f32, -delta.0 as f32));
                 },
                 glutin::event::DeviceEvent::Key(k) => {
-                    if let Some(vk) = k.virtual_keycode {
-                        match vk {
-                            glutin::event::VirtualKeyCode::Q => {
-                                *control_flow = glutin::event_loop::ControlFlow::Exit;
+                    if k.state == ElementState::Pressed {
+                        if let Some(vk) = k.virtual_keycode {
+                            match vk {
+                                glutin::event::VirtualKeyCode::Q => {
+                                    *control_flow = glutin::event_loop::ControlFlow::Exit;
+                                }
+                                glutin::event::VirtualKeyCode::W => {
+                                    change_draw_mode(&mut mode, DrawMode::Wire, &mut shader_subroutine, &mut params)
+                                }
+                                glutin::event::VirtualKeyCode::R => {
+                                    change_draw_mode(&mut mode, DrawMode::Render, &mut shader_subroutine, &mut params)
+                                }
+                                glutin::event::VirtualKeyCode::D => {
+                                    change_draw_mode(&mut mode, DrawMode::DepthBuffer, &mut shader_subroutine, &mut params)
+                                }
+                                glutin::event::VirtualKeyCode::P => {
+                                    match save_screenshot(&display, &camera) { 
+                                        Ok(p) => eprintln!("Saved screenshot to {:?}", p),
+                                        Err(e) => eprintln!("{}", e)
+                                    };
+                                }
+                                _ => ()
                             }
-                            glutin::event::VirtualKeyCode::W => {
-                                change_draw_mode(&mut mode, DrawMode::Wire, &mut shader_subroutine, &mut params)
-                            }
-                            glutin::event::VirtualKeyCode::R => {
-                                change_draw_mode(&mut mode, DrawMode::Render, &mut shader_subroutine, &mut params)
-                            }
-                            glutin::event::VirtualKeyCode::D => {
-                                change_draw_mode(&mut mode, DrawMode::DepthBuffer, &mut shader_subroutine, &mut params)
-                            }
-                            _ => ()
                         }
                     }
                 },
@@ -223,4 +230,44 @@ fn change_draw_mode(current: &mut DrawMode, new: DrawMode, shader_param: &mut Fr
         _ => () // identity
     }
     *current = new;
+}
+
+fn save_screenshot(display: &glium::Display, cam: &Camera) -> Result<String, Box<dyn std::error::Error>>{
+    use std::time;
+    use std::io::Write;
+
+    let dir_path = format!("{}/Pictures/rust_obj", std::env::var("HOME")?);
+    let base_path = format!("{}/Pictures/rust_obj/{}", std::env::var("HOME")?, std::process::id());
+    let name = format!("{}.ppm", time::SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap().as_millis());
+
+    fs::create_dir(&dir_path).map_or_else(|e| if matches!(e.kind(), std::io::ErrorKind::AlreadyExists) { Ok(()) } else { Err(e) }, |_| Ok(()))?;
+    fs::create_dir(&base_path).map_or_else(|e| if matches!(e.kind(), std::io::ErrorKind::AlreadyExists) { Ok(()) } else { Err(e) }, |_| Ok(()))?;
+
+    let full_path = format!("{}/{}", &base_path, &name);
+    let mut file = fs::File::options().write(true).create_new(true).open(&full_path)?;
+    let mut buffer = Vec::<u8>::new();
+
+    let img: Vec<Vec<(u8, u8, u8, u8)>> = display.read_front_buffer()?;
+    let dim = display.get_framebuffer_dimensions();
+
+    writeln!(buffer, "P3")?;
+    writeln!(buffer, "# {}, {}, {}", cam.pos.x, cam.pos.y, cam.pos.z)?;
+    writeln!(buffer, "# Above line is camera position")?;
+    writeln!(buffer, "{}, {}", dim.0, dim.1)?;
+    writeln!(buffer, "255")?;
+
+    for row in img.iter().rev() {
+        for pix in row {
+            write!(buffer, "{} {} {} ", pix.0, pix.1, pix.2)?;
+        }
+        writeln!(buffer)?;
+
+        if buffer.len() >= 1024 * 1024 * 8 {
+            file.write_all(&buffer)?;
+            buffer.clear()
+        }
+    }
+    file.write_all(&buffer)?;
+
+    Ok(full_path)
 }
