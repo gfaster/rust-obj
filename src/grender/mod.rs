@@ -3,6 +3,7 @@ use std::time;
 
 use crate::mesh;
 use crate::mesh::GlVertex;
+use glium::glutin::error::ExternalError;
 use glium::{
     glutin::{self, event::ElementState, window::CursorGrabMode},
     implement_vertex,
@@ -172,7 +173,7 @@ pub fn display_model(m: mesh::MeshData) {
                     *control_flow = glutin::event_loop::ControlFlow::Exit;
                 }
                 glutin::event::WindowEvent::Focused(b) => {
-                    handle_window_focus(b, &display);
+                    handle_window_focus(b, &display).unwrap_or(());
                 }
                 _ => (),
             },
@@ -238,28 +239,28 @@ pub fn display_model(m: mesh::MeshData) {
     });
 }
 
-fn handle_window_focus(focused: bool, display: &glium::Display) {
+fn handle_window_focus(focused: bool, display: &glium::Display) -> Result<(), ExternalError> {
     if focused {
         display
             .gl_window()
             .window()
             .set_cursor_grab(CursorGrabMode::Confined)
-            .or_else(|_e| {
+            .or_else(|_| {
                 display
                     .gl_window()
                     .window()
                     .set_cursor_grab(CursorGrabMode::Locked)
-            })
-            .unwrap();
+            })?;
         display.gl_window().window().set_cursor_visible(false);
     } else {
         display
             .gl_window()
             .window()
-            .set_cursor_grab(CursorGrabMode::None)
-            .unwrap();
+            .set_cursor_grab(CursorGrabMode::None)?;
         display.gl_window().window().set_cursor_visible(true);
     }
+
+    Ok(())
 }
 
 fn change_draw_mode(
