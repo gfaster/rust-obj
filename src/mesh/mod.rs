@@ -81,7 +81,6 @@ pub struct MeshData {
     vt: Vec<glm::Vec2>,
     f: Vec<VertexIndexed>,
 
-    normalize_factor_sq: f32,
     running_center: Vec3,
     running_volume: f32,
 }
@@ -103,7 +102,6 @@ impl MeshData {
             vt: vec![],
             f: vec![],
 
-            normalize_factor_sq: 0.0,
             running_center: Vec3::from([0.0, 0.0, 0.0]),
             running_volume: 0.0,
         }
@@ -113,27 +111,17 @@ impl MeshData {
     /// this function is unaware of duplicates - it's up
     /// to the caller to be efficent with memory
     pub fn add_vertex_pos(&mut self, pos: Vec3) -> usize {
-        if pos.magnitude_squared() > self.normalize_factor_sq {
-            self.normalize_factor_sq = pos.magnitude_squared();
-        }
         self.v.push(pos);
         self.v.len() - 1
     }
 
     pub fn normalize_factor(&self) -> f32 {
-        self.normalize_factor_sq.sqrt()
+        let centroid = self.centroid();
+        self.v.iter().map(|v| (v - &centroid).magnitude()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(1.0)
     }
 
     pub fn centroid(&self) -> Vec3 {
         self.running_center / self.running_volume
-    }
-
-    pub fn recenter(&mut self) {
-        let centroid = self.centroid();
-        for v in self.v.iter_mut() {
-            *v -= centroid;
-        }
-        self.running_center = Vec3::from([0.0, 0.0, 0.0]);
     }
 
     /// adds a new vertex normal, and returns the index

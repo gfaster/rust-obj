@@ -108,7 +108,13 @@ pub fn display_model(m: mesh::MeshData) {
         [0.0, scale, 0.0, 0.0],
         [0.0, 0.0, scale, 0.0],
         [0.0, 0.0, 0.0, 1.0f32],
+    ]) * glm::Mat4::from([
+        [1.0,       0.0,       0.0,       0.0],
+        [0.0,       1.0,       0.0,       0.0],
+        [0.0,       0.0,       1.0,       0.0],
+        [-center.x, -center.y, -center.z, 1.0],
     ]);
+
     // eprintln!("{:.2}", transform);
     let model_normal_matrix = glm::transpose(&glm::inverse(&glm::mat4_to_mat3(&transform)));
 

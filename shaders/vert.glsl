@@ -13,7 +13,7 @@ uniform mat4 transform;
 uniform mat4 modelview;
 uniform mat4 projection_matrix;
 uniform mat3 normal_matrix;
-uniform gl_DepthRangeParameters gl_DepthRange;
+// uniform gl_DepthRangeParameters gl_DepthRange;
 
 void main()
 {

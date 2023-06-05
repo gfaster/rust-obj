@@ -7,14 +7,14 @@ in vec3 v_fragPos;
 in vec3 v_fragNorm;
 in vec2 v_texCoord;
 in float v_depth;
-in vec4 gl_FragCoord; 
+// in vec4 gl_FragCoord; 
 
 
 //uniform sampler2D u_DiffuseMap; 
 //uniform sampler2D u_NormalMap; 
 
 uniform vec3 light_pos;
-uniform gl_DepthRangeParameters gl_DepthRange;
+// uniform gl_DepthRangeParameters gl_DepthRange;
 
 subroutine vec4 shading_routine_t();
 subroutine uniform shading_routine_t shading_routine;

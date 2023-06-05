@@ -16,8 +16,7 @@ fn main() {
             .unwrap_or("./test_assets/bunny.obj".to_string()),
     )
     .expect("pass a valid file path");
-    let mut obj = wavefrontobj::read_obj(&mut input.as_slice());
-    obj.recenter();
+    let obj = wavefrontobj::read_obj(&mut input.as_slice());
     // dbg!(obj.tris().collect::<Vec<_>>());
     grender::display_model(obj);
 }
