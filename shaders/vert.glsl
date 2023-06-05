@@ -7,11 +7,13 @@ in vec2 tex;
 out vec3 v_fragPos;
 out vec3 v_fragNorm;
 out vec2 v_texCoord;
+out float v_depth;
 
 uniform mat4 transform;
 uniform mat4 modelview;
 uniform mat4 projection_matrix;
 uniform mat3 normal_matrix;
+uniform gl_DepthRangeParameters gl_DepthRange;
 
 void main()
 {
@@ -22,4 +24,5 @@ void main()
   v_texCoord = tex;
 
   gl_Position = projection_matrix * modelview * pos;
+  v_depth = gl_Position.z / gl_DepthRange.far;
 }

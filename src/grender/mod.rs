@@ -1,4 +1,5 @@
 use std::fs;
+use std::time;
 
 use crate::mesh;
 use crate::mesh::GlVertex;
@@ -8,6 +9,7 @@ use glium::{
     program::ShaderStage,
     uniform, DrawParameters, IndexBuffer, Program, Surface, VertexBuffer,
 };
+use std::io::Write;
 
 use self::controls::Camera;
 
@@ -30,6 +32,15 @@ enum DrawMode {
     DepthBuffer,
     Render,
     Wire,
+}
+
+impl DrawMode {
+    fn clear_color(&self) -> (f32, f32, f32, f32) {
+        match self {
+            DrawMode::DepthBuffer => (1.0, 1.0, 1.0, 1.0),
+            DrawMode::Render | DrawMode::Wire => (0.3, 0.3, 0.5, 1.0),
+        }
+    }
 }
 
 enum FragSubroutine {
@@ -82,7 +93,14 @@ pub fn display_model(m: mesh::MeshData) {
     let buffers: mesh::MeshDataBuffs = m.into();
 
     let aspect = display.get_framebuffer_dimensions();
-    let perspective = glm::perspective(aspect.0 as f32 / aspect.1 as f32, 1.0, 0.01, 30.0);
+    let near_plane: f32 = 1.0;
+    let far_plane: f32 = 4.0;
+    let perspective = glm::perspective(
+        aspect.0 as f32 / aspect.1 as f32,
+        1.0,
+        near_plane,
+        far_plane,
+    );
 
     let transform = glm::Mat4::from([
         [scale, 0.0, 0.0, 0.0],
@@ -90,7 +108,7 @@ pub fn display_model(m: mesh::MeshData) {
         [0.0, 0.0, scale, 0.0],
         [0.0, 0.0, 0.0, 1.0f32],
     ]);
-    eprintln!("{:.2}", transform);
+    // eprintln!("{:.2}", transform);
     let model_normal_matrix = glm::transpose(&glm::inverse(&glm::mat4_to_mat3(&transform)));
 
     for v in &buffers.verts {
@@ -128,6 +146,7 @@ pub fn display_model(m: mesh::MeshData) {
         let light_pos = camera.pos + glm::Vec3::from([2.0, 2.0, 0.0f32]);
 
         let uniforms = uniform! {
+            cam_transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&view),
             modelview: *AsRef::<[[f32; 4]; 4]>::as_ref(&modelview),
             transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&transform),
             normal_matrix: *AsRef::<[[f32; 3]; 3]>::as_ref(&model_normal_matrix),
@@ -137,7 +156,7 @@ pub fn display_model(m: mesh::MeshData) {
         };
 
         let mut target = display.draw();
-        target.clear_color_and_depth((0.3, 0.3, 0.5, 1.0), 1.0);
+        target.clear_color_and_depth(mode.clear_color(), 1.0);
         target
             .draw(&vbuffer, &ibuffer, &program, &uniforms, &params)
             .unwrap();
@@ -187,9 +206,23 @@ pub fn display_model(m: mesh::MeshData) {
                                     &mut shader_subroutine,
                                     &mut params,
                                 ),
-                                glutin::event::VirtualKeyCode::P => {
-                                    match save_screenshot(&display, &camera) {
+                                glutin::event::VirtualKeyCode::S => {
+                                    match save_screenshot(
+                                        &display,
+                                        &camera,
+                                        (near_plane, far_plane),
+                                    ) {
                                         Ok(p) => eprintln!("Saved screenshot to {:?}", p),
+                                        Err(e) => eprintln!("{}", e),
+                                    };
+                                }
+                                glutin::event::VirtualKeyCode::G => {
+                                    match save_screenshot_greyscale(
+                                        &display,
+                                        &camera,
+                                        (near_plane, far_plane),
+                                    ) {
+                                        Ok(p) => eprintln!("Saved greyscale screenshot to {:?}", p),
                                         Err(e) => eprintln!("{}", e),
                                     };
                                 }
@@ -262,28 +295,15 @@ fn change_draw_mode(
     *current = new;
 }
 
-fn save_screenshot(
-    display: &glium::Display,
-    cam: &Camera,
-) -> Result<String, Box<dyn std::error::Error>> {
-    use std::io::Write;
-    use std::time;
-
+fn screenshot_dir() -> Result<String, Box<dyn std::error::Error>> {
     let dir_path = format!("{}/Pictures/rust_obj", std::env::var("HOME")?);
     let base_path = format!(
         "{}/Pictures/rust_obj/{}",
         std::env::var("HOME")?,
         std::process::id()
     );
-    let name = format!(
-        "{}.ppm",
-        time::SystemTime::now()
-            .duration_since(time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
 
-    fs::create_dir(&dir_path).map_or_else(
+    fs::create_dir(dir_path).map_or_else(
         |e| {
             if matches!(e.kind(), std::io::ErrorKind::AlreadyExists) {
                 Ok(())
@@ -303,6 +323,22 @@ fn save_screenshot(
         },
         |_| Ok(()),
     )?;
+    Ok(base_path)
+}
+
+fn save_screenshot(
+    display: &glium::Display,
+    cam: &Camera,
+    near_far_planes: (f32, f32),
+) -> Result<String, Box<dyn std::error::Error>> {
+    let base_path = screenshot_dir()?;
+    let name = format!(
+        "{}.ppm",
+        time::SystemTime::now()
+            .duration_since(time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
 
     let full_path = format!("{}/{}", &base_path, &name);
     let mut file = fs::File::options()
@@ -315,14 +351,74 @@ fn save_screenshot(
     let dim = display.get_framebuffer_dimensions();
 
     writeln!(buffer, "P3")?;
-    writeln!(buffer, "# {}, {}, {}", cam.pos.x, cam.pos.y, cam.pos.z)?;
-    writeln!(buffer, "# Above line is camera position")?;
+    writeln!(
+        buffer,
+        "# Camera position: {}, {}, {}",
+        cam.pos.x, cam.pos.y, cam.pos.z
+    )?;
+    writeln!(buffer, "# Camera near plane: {}", near_far_planes.0)?;
+    writeln!(buffer, "# Camera far plane: {}", near_far_planes.1)?;
     writeln!(buffer, "{}, {}", dim.0, dim.1)?;
     writeln!(buffer, "255")?;
 
     for row in img.iter().rev() {
         for pix in row {
             write!(buffer, "{} {} {} ", pix.0, pix.1, pix.2)?;
+        }
+        writeln!(buffer)?;
+
+        if buffer.len() >= 1024 * 1024 * 8 {
+            file.write_all(&buffer)?;
+            buffer.clear()
+        }
+    }
+    file.write_all(&buffer)?;
+
+    Ok(full_path)
+}
+
+fn save_screenshot_greyscale(
+    display: &glium::Display,
+    cam: &Camera,
+    near_far_planes: (f32, f32),
+) -> Result<String, Box<dyn std::error::Error>> {
+    let base_path = screenshot_dir()?;
+    let name = format!(
+        "{}.pgm",
+        time::SystemTime::now()
+            .duration_since(time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+
+    let full_path = format!("{}/{}", &base_path, &name);
+    let mut file = fs::File::options()
+        .write(true)
+        .create_new(true)
+        .open(&full_path)?;
+    let mut buffer = Vec::<u8>::new();
+
+    let img: Vec<Vec<(u8, u8, u8, u8)>> = display.read_front_buffer()?;
+    let dim = display.get_framebuffer_dimensions();
+
+    writeln!(buffer, "P2")?;
+    writeln!(
+        buffer,
+        "# Camera position: {}, {}, {}",
+        cam.pos.x, cam.pos.y, cam.pos.z
+    )?;
+    writeln!(buffer, "# Camera near plane: {}", near_far_planes.0)?;
+    writeln!(buffer, "# Camera far plane: {}", near_far_planes.1)?;
+    writeln!(buffer, "{}, {}", dim.0, dim.1)?;
+    writeln!(buffer, "255")?;
+
+    for row in img.iter().rev() {
+        for pix in row {
+            write!(
+                buffer,
+                "{} ",
+                (pix.0 as u32 + pix.1 as u32 + pix.2 as u32) / 3
+            )?;
         }
         writeln!(buffer)?;
 

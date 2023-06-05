@@ -6,6 +6,7 @@ out vec4 FragColor;
 in vec3 v_fragPos;
 in vec3 v_fragNorm;
 in vec2 v_texCoord;
+in float v_depth;
 in vec4 gl_FragCoord; 
 
 
@@ -13,12 +14,14 @@ in vec4 gl_FragCoord;
 //uniform sampler2D u_NormalMap; 
 
 uniform vec3 light_pos;
+uniform gl_DepthRangeParameters gl_DepthRange;
+
 subroutine vec4 shading_routine_t();
 subroutine uniform shading_routine_t shading_routine;
 
 subroutine(shading_routine_t) vec4 depth_buffer() {
-    float adjusted_depth = gl_FragCoord.z * gl_FragCoord.w;
-    return vec4(vec3(adjusted_depth), 1.0f);
+    float depth = v_depth * gl_FragCoord.w;
+    return vec4(vec3(depth), 1.0f);
 }
 
 subroutine(shading_routine_t) vec4 shaded() {

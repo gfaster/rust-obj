@@ -31,12 +31,13 @@ impl Camera {
     /// orbit camera around the target on the current ball the camera is on (centered at the
     /// target)
     ///
-    /// will move radians equal to the magnitiude of `delta` in the local direction of the
+    /// will move radians equal to the magnitude of `delta` in the local direction of the
     /// components
     pub fn orbit_target(&mut self, delta: &Vec2) {
         let rel_pos = self.relative_pos();
         let horiz_normal = UP.cross(&rel_pos);
-        let normal = glm::vec3(horiz_normal.x * delta.y, delta.x, horiz_normal.z * delta.y);
+        let normal =
+            glm::vec3(horiz_normal.x * delta.y, delta.x, horiz_normal.z * delta.y).normalize();
         let angle = delta.magnitude();
         let new_rel_pos = glm::rotate_vec3(&rel_pos, angle, &normal);
         // let new_rel_pos = glm::rotate_y_vec3(&self.relative_pos(), delta.x);
