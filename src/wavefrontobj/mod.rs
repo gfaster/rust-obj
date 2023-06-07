@@ -3,6 +3,9 @@ use std::{convert::TryInto, io::BufRead};
 use crate::glm::{Vec2, Vec3};
 use crate::mesh::{self, VertexIndexed};
 
+mod ppm;
+pub use ppm::*;
+
 fn read_line(line: &str, obj: &mut mesh::MeshData) -> Result<(), ()> {
     let noncomment = match line.split('#').next() {
         None => line,

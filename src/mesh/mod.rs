@@ -3,6 +3,10 @@
 use std::collections::HashMap;
 
 mod tri;
+pub mod mat;
+pub mod color;
+pub mod image;
+
 pub use glm::{Vec2, Vec3};
 pub use tri::*;
 
@@ -169,19 +173,6 @@ impl MeshData {
                 None => None,
             },
         })
-    }
-
-    /// add a single vertex to the index buffer
-    /// use of the function is discuraged because
-    /// in the case of failure part way through
-    /// adding a polygon, the buffer will have been
-    /// already updated
-    pub fn add_tri_vertex(&mut self, vtx: VertexIndexed) -> Result<(), MeshError> {
-        let _ = self.deref_vertex(&vtx)?;
-
-        self.f.push(vtx);
-
-        Ok(())
     }
 
     /// adds a tri to the index buffer
