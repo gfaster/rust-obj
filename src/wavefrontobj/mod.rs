@@ -1,9 +1,9 @@
+use std::convert::TryInto;
+use std::error::Error;
+use std::fmt::Display;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::path::Path;
-use std::error::Error;
-use std::fmt::Display;
-use std::convert::TryInto;
 
 use crate::glm::{Vec2, Vec3};
 use crate::mesh::mat::Material;
@@ -26,7 +26,7 @@ impl Display for WavefrontObjError {
     }
 }
 
-impl Error for WavefrontObjError { }
+impl Error for WavefrontObjError {}
 
 type ObjResult<T> = Result<T, Box<dyn Error>>;
 
@@ -55,11 +55,13 @@ fn read_line(line: &str, obj: &mut mesh::MeshData, path: impl AsRef<Path>) -> Ob
             obj.add_vertex_uv(parse_texture_coords(&tokens)?);
         }
         "mtllib" => {
-            obj.set_material(Material::load(path.as_ref().with_file_name(tokens.get(1).ok_or(WavefrontObjError::MissingArguments)?))?);
+            obj.set_material(Material::load(path.as_ref().with_file_name(
+                tokens.get(1).ok_or(WavefrontObjError::MissingArguments)?,
+            ))?);
         }
         "usemtl" => {
             if tokens.get(1).ok_or(WavefrontObjError::MissingArguments)? != &obj.material().name() {
-                return Err(WavefrontObjError::UnknownMaterial.into())
+                return Err(WavefrontObjError::UnknownMaterial.into());
             }
         }
         _ => (),
@@ -75,8 +77,12 @@ fn parse_vec3(tokens: &[&str]) -> ObjResult<Vec3> {
         .skip(1)
         .take(3)
         .map(|t| t.parse())
-        .collect::<Result<Vec<f32>, _>>().map_err(|e| Into::<Box::<dyn Error>>::into(Box::new(e)))
-        .map(|v| TryInto::<[f32; 3]>::try_into(v).map_err(|_| WavefrontObjError::InvalidVectorFormat.into()))?
+        .collect::<Result<Vec<f32>, _>>()
+        .map_err(|e| Into::<Box<dyn Error>>::into(Box::new(e)))
+        .map(|v| {
+            TryInto::<[f32; 3]>::try_into(v)
+                .map_err(|_| WavefrontObjError::InvalidVectorFormat.into())
+        })?
         .map(Into::into)
 }
 
@@ -90,11 +96,19 @@ fn parse_texture_coords(tokens: &[&str]) -> ObjResult<Vec2> {
         .skip(1)
         .take(2)
         .map(|t| t.parse())
-        .collect::<Result<Vec<f32>, _>>().map_err(|e| Into::<Box::<dyn Error>>::into(Box::new(e)))
-        .map(|v| TryInto::<[f32; 2]>::try_into(v).map_err(|_| WavefrontObjError::InvalidTexturePosFormat.into()))?
+        .collect::<Result<Vec<f32>, _>>()
+        .map_err(|e| Into::<Box<dyn Error>>::into(Box::new(e)))
+        .map(|v| {
+            TryInto::<[f32; 2]>::try_into(v)
+                .map_err(|_| WavefrontObjError::InvalidTexturePosFormat.into())
+        })?
         .map(Into::into);
 
-    res.as_mut().map(|res| {res.x = 1.0 - res.x;}).unwrap_or(());
+    res.as_mut()
+        .map(|res| {
+            res.x = 1.0 - res.x;
+        })
+        .unwrap_or(());
     res
 }
 
@@ -115,7 +129,8 @@ fn parse_face(tokens: &[&str]) -> ObjResult<[VertexIndexed; 3]> {
             let norm = v.next().flatten();
             Some(VertexIndexed { pos, tex, norm })
         })
-        .collect::<Option<Vec<_>>>().ok_or(WavefrontObjError::InvalidFaceFormat)?;
+        .collect::<Option<Vec<_>>>()
+        .ok_or(WavefrontObjError::InvalidFaceFormat)?;
 
     // ensure consistency of vertex attributes
     if !attrs
@@ -131,7 +146,9 @@ fn parse_face(tokens: &[&str]) -> ObjResult<[VertexIndexed; 3]> {
         return Err(WavefrontObjError::InvalidFaceFormat.into());
     }
 
-    Ok(attrs.try_into().expect("attributes should have been validated previously"))
+    Ok(attrs
+        .try_into()
+        .expect("attributes should have been validated previously"))
 }
 
 pub fn load(path: impl AsRef<Path>) -> std::io::Result<mesh::MeshData> {

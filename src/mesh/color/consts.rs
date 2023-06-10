@@ -8,7 +8,12 @@ use super::Color;
 macro_rules! const_color {
     ($name:ident: $r:literal $g:literal $b:literal) => {
         #[doc=concat!("rgb = ", stringify!($r), ", ", stringify!($g), ", ", stringify!($b))]
-        pub const $name: Color = Color {r: $r, g: $g, b: $b, a: 255};
+        pub const $name: Color = Color {
+            r: $r,
+            g: $g,
+            b: $b,
+            a: 255,
+        };
     };
 }
 

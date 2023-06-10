@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
-mod tri;
-pub mod mat;
 pub mod color;
+pub mod mat;
+mod tri;
 
 pub use glm::{Vec2, Vec3};
 pub use tri::*;
@@ -107,7 +107,7 @@ impl std::fmt::Display for MeshError {
     }
 }
 
-impl std::error::Error for MeshError { }
+impl std::error::Error for MeshError {}
 
 impl MeshData {
     pub fn new() -> Self {
@@ -134,7 +134,11 @@ impl MeshData {
 
     pub fn normalize_factor(&self) -> f32 {
         let centroid = self.centroid();
-        self.v.iter().map(|v| (v - &centroid).magnitude()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(1.0)
+        self.v
+            .iter()
+            .map(|v| (v - &centroid).magnitude())
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(1.0)
     }
 
     pub fn centroid(&self) -> Vec3 {
@@ -188,11 +192,11 @@ impl MeshData {
         })
     }
 
-    pub fn material(&self) -> &Material{
+    pub fn material(&self) -> &Material {
         &self.material
     }
 
-    pub fn material_mut(&mut self) -> &mut Material{
+    pub fn material_mut(&mut self) -> &mut Material {
         &mut self.material
     }
 

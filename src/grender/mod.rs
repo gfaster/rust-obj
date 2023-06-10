@@ -8,8 +8,8 @@ use glium::{
     glutin::{self, event::ElementState, window::CursorGrabMode},
     implement_vertex,
     program::ShaderStage,
+    texture::CompressedSrgbTexture2d,
     uniform, DrawParameters, IndexBuffer, Program, Surface, VertexBuffer,
-    texture::CompressedSrgbTexture2d
 };
 use std::io::Write;
 
@@ -74,7 +74,8 @@ pub fn display_model(m: mesh::MeshData) {
     let vertex_shader =
         fs::read_to_string("./shaders/vert.glsl").expect("unable to open vert.glsl");
     let fragment_shader = if let Some(texture) = material.diffuse_map() {
-        fs::read_to_string("./shaders/frag_textured.glsl").expect("unable to open frag_textured.glsl")
+        fs::read_to_string("./shaders/frag_textured.glsl")
+            .expect("unable to open frag_textured.glsl")
     } else {
         fs::read_to_string("./shaders/frag.glsl").expect("unable to open frag.glsl")
     };
@@ -104,7 +105,7 @@ pub fn display_model(m: mesh::MeshData) {
         CompressedSrgbTexture2d::new(&display, img).unwrap()
     } else {
         let dim = (1, 1);
-        let img = glium::texture::RawImage2d::from_raw_rgb_reversed(&[128u8, 128u8, 128u8], (1,1));
+        let img = glium::texture::RawImage2d::from_raw_rgb_reversed(&[128u8, 128u8, 128u8], (1, 1));
         CompressedSrgbTexture2d::new(&display, img).unwrap()
     };
 

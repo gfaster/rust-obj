@@ -1,4 +1,8 @@
-use std::{io::{BufRead, BufReader}, path::Path, error::Error};
+use std::{
+    error::Error,
+    io::{BufRead, BufReader},
+    path::Path,
+};
 
 use image::RgbaImage;
 
@@ -78,7 +82,7 @@ impl Material {
                 *l = split.0.to_string()
             }
         }
-        lines.retain(|l| l.len() > 0);
+        lines.retain(|l| !l.is_empty());
 
         let mut ret = Self::new();
 
@@ -86,10 +90,11 @@ impl Material {
             [] => return Err(MtlError::MissingDirective.into()),
             ["newmtl", n] => n,
             ["newmtl"] => return Err(MtlError::MissingArgument.into()),
-            [invalid_directive, ..] => return Err(MtlError::InvalidDirective(invalid_directive.to_string()).into()),
+            [invalid_directive, ..] => {
+                return Err(MtlError::InvalidDirective(invalid_directive.to_string()).into())
+            }
         };
         ret.name = name.to_string();
-
 
         for line in &lines[1..] {
             let tokens = &line.split_whitespace().collect::<Vec<_>>()[..];
@@ -99,11 +104,19 @@ impl Material {
                 ["newmtl", ..] => return Err(MtlError::MultipleMaterials.into()),
                 ["Ka", r, g, b] => ret.ambient = [r.parse::<f32>()?, g.parse()?, b.parse()?].into(),
                 ["Kd", r, g, b] => ret.diffuse = [r.parse::<f32>()?, g.parse()?, b.parse()?].into(),
-                ["Ks", r, g, b] => ret.specular = [r.parse::<f32>()?, g.parse()?, b.parse()?].into(),
+                ["Ks", r, g, b] => {
+                    ret.specular = [r.parse::<f32>()?, g.parse()?, b.parse()?].into()
+                }
                 ["Ns", factor] => ret.spec_exp = factor.parse()?,
-                ["map_Ka", map_file] => ret.ambient_map = Some(read_map(path.as_ref().with_file_name(map_file))?),
-                ["map_Kd", map_file] => ret.diffuse_map = Some(read_map(path.as_ref().with_file_name(map_file))?),
-                ["bump", map_file] | ["map_Bump", map_file] => ret.normal_map = Some(read_map(path.as_ref().with_file_name(map_file))?),
+                ["map_Ka", map_file] => {
+                    ret.ambient_map = Some(read_map(path.as_ref().with_file_name(map_file))?)
+                }
+                ["map_Kd", map_file] => {
+                    ret.diffuse_map = Some(read_map(path.as_ref().with_file_name(map_file))?)
+                }
+                ["bump", map_file] | ["map_Bump", map_file] => {
+                    ret.normal_map = Some(read_map(path.as_ref().with_file_name(map_file))?)
+                }
                 ["map_Ks", _map_file] => (),
                 ["illum", _illium] => (),
                 ["Ke", _r, _g, _b] => (),
@@ -117,7 +130,10 @@ impl Material {
 }
 
 fn read_map(path: impl AsRef<Path>) -> Result<RgbaImage, Box<dyn Error>> {
-    Ok(image::io::Reader::open(path)?.with_guessed_format()?.decode()?.to_rgba8())
+    Ok(image::io::Reader::open(path)?
+        .with_guessed_format()?
+        .decode()?
+        .to_rgba8())
 }
 
 impl Default for Material {
@@ -162,10 +178,12 @@ pub enum MtlError {
 impl std::fmt::Display for MtlError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MtlError::MultipleMaterials => write!(f, "{:?} (multiple materials is unimplemented)", self),
-            _ => write!(f, "{:?}", self)
+            MtlError::MultipleMaterials => {
+                write!(f, "{:?} (multiple materials is unimplemented)", self)
+            }
+            _ => write!(f, "{:?}", self),
         }
     }
 }
 
-impl std::error::Error for MtlError { }
+impl std::error::Error for MtlError {}

@@ -16,17 +16,13 @@ impl Color {
     /// compile-time convert to array
     pub const fn to_array(self) -> [u8; 4] {
         // SAFTEY: Color has repr(C) and so has array layout
-        unsafe {
-            std::mem::transmute(self)
-        }
+        unsafe { std::mem::transmute(self) }
     }
 
     /// compile-time create from array
     pub const fn from_array(arr: [u8; 4]) -> Self {
         // SAFTEY: Color has repr(C) and so has array layout
-        unsafe {
-            std::mem::transmute(arr)
-        }
+        unsafe { std::mem::transmute(arr) }
     }
 }
 
@@ -35,7 +31,6 @@ impl Default for Color {
         consts::GREY
     }
 }
-
 
 impl Display for Color {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -96,17 +91,25 @@ impl From<Color> for (u8, u8, u8, u8) {
 
 impl From<ColorFloat> for Color {
     fn from(value: ColorFloat) -> Self {
-        Color { r: (value.r * 256.0) as u8, g: (value.g * 256.0) as u8, b: (value.b * 256.0) as u8, a: (value.a * 256.0) as u8 }
+        Color {
+            r: (value.r * 256.0) as u8,
+            g: (value.g * 256.0) as u8,
+            b: (value.b * 256.0) as u8,
+            a: (value.a * 256.0) as u8,
+        }
     }
 }
 
 impl From<Color> for ColorFloat {
     fn from(value: Color) -> Self {
-        ColorFloat { r: value.r as f32 / 256.0, g: value.g as f32 / 256.0, b: value.b as f32 / 256.0, a: value.a as f32 / 256.0 }
+        ColorFloat {
+            r: value.r as f32 / 256.0,
+            g: value.g as f32 / 256.0,
+            b: value.b as f32 / 256.0,
+            a: value.a as f32 / 256.0,
+        }
     }
 }
-
-
 
 /// color with rgb component range between 0.0 and 1.0
 #[derive(Debug, Clone, Copy)]
@@ -116,7 +119,6 @@ pub struct ColorFloat {
     pub b: f32,
     pub a: f32,
 }
-
 
 impl Display for ColorFloat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -131,10 +133,14 @@ impl Default for ColorFloat {
     }
 }
 
-
 impl From<[f32; 3]> for ColorFloat {
     fn from(value: [f32; 3]) -> Self {
-        Self { r: value[0], g: value[1], b: value[2], a: 1.0 }
+        Self {
+            r: value[0],
+            g: value[1],
+            b: value[2],
+            a: 1.0,
+        }
     }
 }
 
@@ -144,22 +150,35 @@ impl From<ColorFloat> for [f32; 3] {
     }
 }
 
-
 impl From<[u8; 3]> for ColorFloat {
     fn from(value: [u8; 3]) -> Self {
-        Self { r: value[0] as f32 / 256.0, g: value[1] as f32 / 256.0, b: value[2] as f32 / 256.0, a: 1.0 }
+        Self {
+            r: value[0] as f32 / 256.0,
+            g: value[1] as f32 / 256.0,
+            b: value[2] as f32 / 256.0,
+            a: 1.0,
+        }
     }
 }
 
 impl From<ColorFloat> for [u8; 3] {
     fn from(value: ColorFloat) -> Self {
-        [(value.r * 256.0) as u8, (value.g * 256.0) as u8, (value.b * 256.0) as u8]
+        [
+            (value.r * 256.0) as u8,
+            (value.g * 256.0) as u8,
+            (value.b * 256.0) as u8,
+        ]
     }
 }
 
 impl From<[f32; 4]> for ColorFloat {
     fn from(value: [f32; 4]) -> Self {
-        Self { r: value[0], g: value[1], b: value[2], a: value[3] }
+        Self {
+            r: value[0],
+            g: value[1],
+            b: value[2],
+            a: value[3],
+        }
     }
 }
 
@@ -169,16 +188,24 @@ impl From<ColorFloat> for [f32; 4] {
     }
 }
 
-
 impl From<[u8; 4]> for ColorFloat {
     fn from(value: [u8; 4]) -> Self {
-        Self { r: value[0] as f32 / 256.0, g: value[1] as f32 / 256.0, b: value[2] as f32 / 256.0, a: value[3] as f32 / 256.0 }
+        Self {
+            r: value[0] as f32 / 256.0,
+            g: value[1] as f32 / 256.0,
+            b: value[2] as f32 / 256.0,
+            a: value[3] as f32 / 256.0,
+        }
     }
 }
 
 impl From<ColorFloat> for [u8; 4] {
     fn from(value: ColorFloat) -> Self {
-        [(value.r * 256.0) as u8, (value.g * 256.0) as u8, (value.b * 256.0) as u8, (value.a * 256.0) as u8]
+        [
+            (value.r * 256.0) as u8,
+            (value.g * 256.0) as u8,
+            (value.b * 256.0) as u8,
+            (value.a * 256.0) as u8,
+        ]
     }
 }
-
