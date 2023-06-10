@@ -2,6 +2,7 @@ use std::fs;
 use std::time;
 
 use crate::mesh;
+use crate::mesh::mat::Material;
 use crate::mesh::GlVertex;
 use glium::glutin::error::ExternalError;
 use glium::{
@@ -104,8 +105,10 @@ pub fn display_model(m: mesh::MeshData) {
         let img = glium::texture::RawImage2d::from_raw_rgba_reversed(&img.clone().into_raw(), dim);
         CompressedSrgbTexture2d::new(&display, img).unwrap()
     } else {
-        let dim = (1, 1);
-        let img = glium::texture::RawImage2d::from_raw_rgb_reversed(&[128u8, 128u8, 128u8], (1, 1));
+        let img = Material::dev_texture();
+        let dim = img.dimensions();
+        let img =
+            glium::texture::RawImage2d::from_raw_rgba_reversed(&img.into_raw(), dim);
         CompressedSrgbTexture2d::new(&display, img).unwrap()
     };
 
@@ -127,9 +130,9 @@ pub fn display_model(m: mesh::MeshData) {
         [0.0, 0.0, scale, 0.0],
         [0.0, 0.0, 0.0, 1.0f32],
     ]) * glm::Mat4::from([
-        [1.0,       0.0,       0.0,       0.0],
-        [0.0,       1.0,       0.0,       0.0],
-        [0.0,       0.0,       1.0,       0.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
         [-center.x, -center.y, -center.z, 1.0],
     ]);
 

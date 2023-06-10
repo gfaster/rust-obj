@@ -25,7 +25,7 @@ pub struct Material {
 impl Material {
     pub fn new() -> Self {
         Self {
-            name: "New Material".to_string(),
+            name: "New_Material".to_string(),
             diffuse: Default::default(),
             ambient: [0.05, 0.05, 0.05].into(),
             specular: [0.0, 0.0, 0.0].into(),
@@ -34,6 +34,29 @@ impl Material {
             normal_map: Default::default(),
             spec_exp: 1.0,
         }
+    }
+
+    /// creates a new material with a dev texture
+    pub fn new_dev() -> Self {
+        Self {
+            name: "New_Material".to_string(),
+            diffuse: Default::default(),
+            ambient: [0.05, 0.05, 0.05].into(),
+            specular: [0.0, 0.0, 0.0].into(),
+            ambient_map: Default::default(),
+            diffuse_map: Some(Material::dev_texture()),
+            normal_map: Default::default(),
+            spec_exp: 1.0,
+        }
+    }
+
+    pub fn dev_texture() -> RgbaImage {
+        image::load_from_memory_with_format(
+            include_bytes!("../../assets/missing_texture.png"),
+            image::ImageFormat::Png,
+        )
+        .unwrap()
+        .to_rgba8()
     }
 
     pub fn diffuse(&self) -> ColorFloat {
