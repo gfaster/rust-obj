@@ -9,6 +9,7 @@ use glium::{
     implement_vertex,
     program::ShaderStage,
     uniform, DrawParameters, IndexBuffer, Program, Surface, VertexBuffer,
+    texture::CompressedSrgbTexture2d
 };
 use std::io::Write;
 
@@ -68,10 +69,15 @@ pub fn display_model(m: mesh::MeshData) {
     let cb = glutin::ContextBuilder::new().with_depth_buffer(24);
     let display = glium::Display::new(wb, cb, &event_loop).unwrap();
 
+    let material = m.material().clone();
+
     let vertex_shader =
         fs::read_to_string("./shaders/vert.glsl").expect("unable to open vert.glsl");
-    let fragment_shader =
-        fs::read_to_string("./shaders/frag.glsl").expect("unable to open frag.glsl");
+    let fragment_shader = if let Some(texture) = material.diffuse_map() {
+        fs::read_to_string("./shaders/frag_textured.glsl").expect("unable to open frag_textured.glsl")
+    } else {
+        fs::read_to_string("./shaders/frag.glsl").expect("unable to open frag.glsl")
+    };
 
     // let vertex_shader = include_str!("../../shaders/vert.glsl");
     // let fragment_shader = include_str!("../../shaders/frag.glsl");
@@ -87,9 +93,19 @@ pub fn display_model(m: mesh::MeshData) {
     if m.normalize_factor() == 0.0 {
         panic!("model has a normalization factor of zero - there are no vertices");
     }
-    let scale: f32 = 2.0 / dbg!(m.normalize_factor());
+    let scale: f32 = 1.5 / dbg!(m.normalize_factor());
 
     let center = m.centroid();
+
+    let gl_tex = if let Some(img) = material.diffuse_map() {
+        let dim = img.dimensions();
+        let img = glium::texture::RawImage2d::from_raw_rgba_reversed(&img.clone().into_raw(), dim);
+        CompressedSrgbTexture2d::new(&display, img).unwrap()
+    } else {
+        let dim = (1, 1);
+        let img = glium::texture::RawImage2d::from_raw_rgb_reversed(&[128u8, 128u8, 128u8], (1,1));
+        CompressedSrgbTexture2d::new(&display, img).unwrap()
+    };
 
     let buffers: mesh::MeshDataBuffs = m.into();
 
@@ -159,7 +175,10 @@ pub fn display_model(m: mesh::MeshData) {
             normal_matrix: *AsRef::<[[f32; 3]; 3]>::as_ref(&model_normal_matrix),
             projection_matrix: *AsRef::<[[f32; 4]; 4]>::as_ref(&perspective),
             light_pos: *AsRef::<[f32; 3]>::as_ref(&light_pos),
-            shading_routine: (shader_subroutine.as_str(), ShaderStage::Fragment)
+            shading_routine: (shader_subroutine.as_str(), ShaderStage::Fragment),
+            base_diffuse: Into::<[f32; 4]>::into(material.diffuse()),
+            base_specular_factor: material.base_specular_factor(),
+            diffuse_map: &gl_tex,
         };
 
         let mut target = display.draw();

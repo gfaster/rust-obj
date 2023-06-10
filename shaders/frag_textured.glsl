@@ -7,16 +7,14 @@ in vec3 v_fragPos;
 in vec3 v_fragNorm;
 in vec2 v_texCoord;
 in float v_depth;
-// in vec4 gl_FragCoord; 
 
 
-//uniform sampler2D u_DiffuseMap; 
+uniform sampler2D diffuse_map; 
 //uniform sampler2D u_NormalMap; 
 
 uniform vec3 light_pos;
 uniform vec4 base_diffuse;
 uniform float base_specular_factor;
-// uniform gl_DepthRangeParameters gl_DepthRange;
 
 subroutine vec4 shading_routine_t();
 subroutine uniform shading_routine_t shading_routine;
@@ -27,7 +25,7 @@ subroutine(shading_routine_t) vec4 depth_buffer() {
 }
 
 subroutine(shading_routine_t) vec4 shaded() {
-    vec3 base_color = base_diffuse.xyz;
+    vec3 base_color = texture(diffuse_map, v_texCoord).rgb;
     float spec_strength = 0.1f;
     float ambient_strength = 0.05f;
 

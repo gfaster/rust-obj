@@ -1,42 +1,43 @@
+use std::{io::{BufRead, BufReader}, path::Path, error::Error};
+
+use image::RgbaImage;
+
 use super::color::ColorFloat;
 
+#[derive(Debug, Clone)]
 pub struct Material {
     name: String,
     diffuse: ColorFloat,
     ambient: ColorFloat,
     specular: ColorFloat,
-    density: f32,
+    spec_exp: f32,
 
-    // diffuse_map: Option<>,
+    ambient_map: Option<RgbaImage>,
+    diffuse_map: Option<RgbaImage>,
+    normal_map: Option<RgbaImage>,
+    // specular_map: Option<RgbaImage>,
 }
 
 impl Material {
-    pub fn new(name: String) -> Self {
+    pub fn new() -> Self {
         Self {
-            name,
-            density: 1.0,
-            ..Default::default()
+            name: "New Material".to_string(),
+            diffuse: Default::default(),
+            ambient: Default::default(),
+            specular: Default::default(),
+            ambient_map: Default::default(),
+            diffuse_map: Default::default(),
+            normal_map: Default::default(),
+            spec_exp: 1.0,
         }
-    }
-
-    pub fn set_diffuse(&mut self, diffuse: ColorFloat) {
-        self.diffuse = diffuse;
     }
 
     pub fn diffuse(&self) -> ColorFloat {
         self.diffuse
     }
 
-    pub fn set_ambient(&mut self, ambient: ColorFloat) {
-        self.ambient = ambient;
-    }
-
     pub fn ambient(&self) -> ColorFloat {
         self.ambient
-    }
-
-    pub fn set_specular(&mut self, specular: ColorFloat) {
-        self.specular = specular;
     }
 
     pub fn specular(&self) -> ColorFloat {
@@ -46,10 +47,106 @@ impl Material {
     pub fn name(&self) -> &str {
         self.name.as_ref()
     }
+
+    pub fn diffuse_map(&self) -> Option<&RgbaImage> {
+        self.diffuse_map.as_ref()
+    }
+
+    pub fn normal_map(&self) -> Option<&RgbaImage> {
+        self.normal_map.as_ref()
+    }
+
+    pub fn specular_map(&self) -> Option<&RgbaImage> {
+        // self.specular_map.as_ref()
+        None
+    }
+
+    pub fn base_specular_factor(&self) -> f32 {
+        self.spec_exp
+    }
+
+    /// load an mtl file
+    ///
+    /// I would like to just be able to pass a reader here, but this function needs to open
+    /// multiple files, probably with relative pathing
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, Box<dyn std::error::Error>> {
+        let reader = BufReader::new(std::fs::OpenOptions::new().read(true).open(&path)?);
+
+        let mut lines = reader.lines().collect::<std::io::Result<Vec<_>>>()?;
+        for l in &mut lines {
+            if let Some(split) = l.split_once('#') {
+                *l = split.0.to_string()
+            }
+        }
+        lines.retain(|l| l.len() > 0);
+
+        let mut ret = Self::new();
+
+        let name = match lines[0].split_whitespace().collect::<Vec<_>>()[..] {
+            [] => return Err(MtlError::MissingDirective.into()),
+            ["newmtl", n] => n,
+            ["newmtl"] => return Err(MtlError::MissingArgument.into()),
+            [invalid_directive, ..] => return Err(MtlError::InvalidDirective(invalid_directive.to_string()).into()),
+        };
+        ret.name = name.to_string();
+
+
+        for line in &lines[1..] {
+            let tokens = &line.split_whitespace().collect::<Vec<_>>()[..];
+
+            match tokens {
+                [] => return Err(MtlError::UnexpectedEol.into()),
+                ["newmtl", ..] => return Err(MtlError::MultipleMaterials.into()),
+                ["Ka", r, g, b] => ret.ambient = [r.parse::<f32>()?, g.parse()?, b.parse()?].into(),
+                ["Kd", r, g, b] => ret.diffuse = [r.parse::<f32>()?, g.parse()?, b.parse()?].into(),
+                ["Ks", r, g, b] => ret.specular = [r.parse::<f32>()?, g.parse()?, b.parse()?].into(),
+                ["Ns", factor] => ret.spec_exp = factor.parse()?,
+                ["map_Ka", map_file] => ret.ambient_map = Some(read_map(path.as_ref().with_file_name(map_file))?),
+                ["map_Kd", map_file] => ret.diffuse_map = Some(read_map(path.as_ref().with_file_name(map_file))?),
+                ["bump", map_file] => ret.normal_map = Some(read_map(path.as_ref().with_file_name(map_file))?),
+                ["map_Ks", _map_file] => (),
+                ["illum", _illium] => (),
+                ["Ke", _r, _g, _b] => (),
+                ["Ni", _i] => (),
+                ["d", _d] => (),
+                _ => return Err(MtlError::InvalidDirective(line.to_string()).into()),
+            }
+        }
+        Ok(ret)
+    }
+}
+
+fn read_map(path: impl AsRef<Path>) -> Result<RgbaImage, Box<dyn Error>> {
+    Ok(image::io::Reader::open(path)?.with_guessed_format()?.decode()?.to_rgba8())
 }
 
 impl Default for Material {
     fn default() -> Self {
-        Self::new("Default Material".to_string())
+        let mut ret = Self::new();
+        ret.name = "Default Material".to_string();
+        ret
     }
 }
+
+#[derive(Debug)]
+pub enum MtlError {
+    InvalidDirective(String),
+    MissingDirective,
+    UnexpectedEof,
+    UnexpectedEol,
+    CruftAtEol,
+    MissingArgument,
+    MultipleMaterials,
+    MissingFileExtension,
+}
+
+impl std::fmt::Display for MtlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MtlError::MultipleMaterials => write!(f, "{:?} (multiple materials is unimplemented)", self),
+            _ => write!(f, "{:?}", self)
+        }
+    }
+}
+
+impl std::error::Error for MtlError { }

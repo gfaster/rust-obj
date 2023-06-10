@@ -1,12 +1,36 @@
-use std::{convert::TryInto, io::BufRead};
+use std::io::BufRead;
+use std::io::BufReader;
+use std::path::Path;
+use std::error::Error;
+use std::fmt::Display;
+use std::convert::TryInto;
 
 use crate::glm::{Vec2, Vec3};
+use crate::mesh::mat::Material;
 use crate::mesh::{self, VertexIndexed};
 
-mod ppm;
-pub use ppm::*;
+#[derive(Debug)]
+enum WavefrontObjError {
+    InvalidFaceFormat,
+    TooManyFaceVertices,
+    InvalidVectorFormat,
+    InvalidTexturePosFormat,
+    InvalidDirective,
+    MissingArguments,
+    UnknownMaterial,
+}
 
-fn read_line(line: &str, obj: &mut mesh::MeshData) -> Result<(), ()> {
+impl Display for WavefrontObjError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Error for WavefrontObjError { }
+
+type ObjResult<T> = Result<T, Box<dyn Error>>;
+
+fn read_line(line: &str, obj: &mut mesh::MeshData, path: impl AsRef<Path>) -> ObjResult<()> {
     let noncomment = match line.split('#').next() {
         None => line,
         Some(s) => s,
@@ -14,58 +38,67 @@ fn read_line(line: &str, obj: &mut mesh::MeshData) -> Result<(), ()> {
 
     let tokens: Vec<&str> = noncomment.split_whitespace().collect();
     if tokens.is_empty() {
-        return Err(());
+        return Ok(());
     };
 
     match tokens[0] {
         "f" => {
-            obj.add_tri(parse_face(&tokens).ok_or(())?)
-                .map_err(|_| ())?;
+            obj.add_tri(parse_face(&tokens)?)?;
         }
         "v" => {
-            obj.add_vertex_pos(parse_vec3(&tokens).ok_or(())?);
+            obj.add_vertex_pos(parse_vec3(&tokens)?);
         }
         "vn" => {
-            obj.add_vertex_normal(parse_vec3(&tokens).ok_or(())?);
+            obj.add_vertex_normal(parse_vec3(&tokens)?);
         }
         "vt" => {
-            obj.add_vertex_uv(parse_texture_coords(&tokens).ok_or(())?);
+            obj.add_vertex_uv(parse_texture_coords(&tokens)?);
+        }
+        "mtllib" => {
+            obj.set_material(Material::load(path.as_ref().with_file_name(tokens.get(1).ok_or(WavefrontObjError::MissingArguments)?))?);
+        }
+        "usemtl" => {
+            if tokens.get(1).ok_or(WavefrontObjError::MissingArguments)? != &obj.material().name() {
+                return Err(WavefrontObjError::UnknownMaterial.into())
+            }
         }
         _ => (),
     };
     Ok(())
 }
 
-fn parse_vec3(tokens: &[&str]) -> Option<Vec3> {
+fn parse_vec3(tokens: &[&str]) -> ObjResult<Vec3> {
     // first index is the type - ignored by this function
+    // oops - I accidentally made this weirdly complicated
     tokens
         .iter()
         .skip(1)
-        .map(|t| t.parse().ok())
-        .collect::<Option<Vec<f32>>>()
-        .and_then(|v| TryInto::<[f32; 3]>::try_into(v).ok())
+        .take(3)
+        .map(|t| t.parse())
+        .collect::<Result<Vec<f32>, _>>().map_err(|e| Into::<Box::<dyn Error>>::into(Box::new(e)))
+        .map(|v| TryInto::<[f32; 3]>::try_into(v).map_err(|_| WavefrontObjError::InvalidVectorFormat.into()))?
         .map(Into::into)
 }
 
-fn parse_texture_coords(tokens: &[&str]) -> Option<Vec2> {
+fn parse_texture_coords(tokens: &[&str]) -> ObjResult<Vec2> {
     // first index is the type - ignored by this function
     if !matches!(tokens.len(), 3 | 4) {
-        return None;
+        return Err(WavefrontObjError::InvalidTexturePosFormat.into());
     }
     tokens
         .iter()
         .skip(1)
         .take(2)
-        .map(|t| t.parse().ok())
-        .collect::<Option<Vec<f32>>>()
-        .and_then(|v| TryInto::<[f32; 2]>::try_into(v).ok())
+        .map(|t| t.parse())
+        .collect::<Result<Vec<f32>, _>>().map_err(|e| Into::<Box::<dyn Error>>::into(Box::new(e)))
+        .map(|v| TryInto::<[f32; 2]>::try_into(v).map_err(|_| WavefrontObjError::InvalidTexturePosFormat.into()))?
         .map(Into::into)
 }
 
-fn parse_face(tokens: &[&str]) -> Option<[VertexIndexed; 3]> {
+fn parse_face(tokens: &[&str]) -> ObjResult<[VertexIndexed; 3]> {
     // I want this to only parse triangles for now
     if tokens.len() != 4 {
-        return None;
+        return Err(WavefrontObjError::TooManyFaceVertices.into());
     };
 
     // TODO: fewer allocations here
@@ -79,42 +112,37 @@ fn parse_face(tokens: &[&str]) -> Option<[VertexIndexed; 3]> {
             let norm = v.next().flatten();
             Some(VertexIndexed { pos, tex, norm })
         })
-        .collect::<Option<Vec<_>>>()?;
+        .collect::<Option<Vec<_>>>().ok_or(WavefrontObjError::InvalidFaceFormat)?;
 
     // ensure consistency of vertex attributes
     if !attrs
         .windows(2)
         .all(|x| core::mem::discriminant(&x[0].tex) == core::mem::discriminant(&x[1].tex))
     {
-        return None;
+        return Err(WavefrontObjError::InvalidFaceFormat.into());
     }
     if !attrs
         .windows(2)
         .all(|x| core::mem::discriminant(&x[0].norm) == core::mem::discriminant(&x[1].norm))
     {
-        return None;
+        return Err(WavefrontObjError::InvalidFaceFormat.into());
     }
 
-    attrs.try_into().ok()
+    Ok(attrs.try_into().expect("attributes should have been validated previously"))
 }
 
-pub fn read_obj(buf: &mut impl BufRead) -> mesh::MeshData {
+pub fn load(path: impl AsRef<Path>) -> std::io::Result<mesh::MeshData> {
+    let mut buf = BufReader::new(std::fs::File::open(&path)?);
     let mut line = String::new();
 
     let mut objmesh = mesh::MeshData::new();
 
     while buf.read_line(&mut line).map_or(0, |x| x) != 0 {
-        read_line(line.as_str(), &mut objmesh).unwrap_or_else(|_| {
-            if line
-                .split('#')
-                .next()
-                .map_or(false, |l| !l.trim().is_empty())
-            {
-                eprintln!("Line could not be read: {:?}", line);
-            }
+        read_line(line.as_str(), &mut objmesh, &path).unwrap_or_else(|e| {
+            eprintln!("{:?} could not be read with error {e}", line);
         });
         line.clear();
     }
 
-    objmesh
+    Ok(objmesh)
 }

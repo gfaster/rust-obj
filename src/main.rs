@@ -11,13 +11,12 @@ mod mesh;
 mod wavefrontobj;
 
 fn main() {
-    let input = std::fs::read(
+    let input = 
         std::env::args()
             .nth(1)
-            .unwrap_or("./test_assets/bunny.obj".to_string()),
-    )
-    .expect("pass a valid file path");
-    let obj = wavefrontobj::read_obj(&mut input.as_slice());
+            .unwrap_or("./test_assets/bunny.obj".to_string());
+
+    let obj = wavefrontobj::load(input).expect("pass a valid file path");
     // dbg!(obj.tris().collect::<Vec<_>>());
     grender::display_model(obj);
 }

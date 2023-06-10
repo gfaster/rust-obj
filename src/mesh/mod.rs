@@ -5,10 +5,11 @@ use std::collections::HashMap;
 mod tri;
 pub mod mat;
 pub mod color;
-pub mod image;
 
 pub use glm::{Vec2, Vec3};
 pub use tri::*;
+
+use self::mat::Material;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
 pub struct VertexIndexed {
@@ -85,6 +86,8 @@ pub struct MeshData {
     vt: Vec<glm::Vec2>,
     f: Vec<VertexIndexed>,
 
+    material: Material,
+
     running_center: Vec3,
     running_volume: f32,
 }
@@ -98,6 +101,14 @@ pub enum MeshError {
     TriangleVertexIndexInvalid { tried: u32 },
 }
 
+impl std::fmt::Display for MeshError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for MeshError { }
+
 impl MeshData {
     pub fn new() -> Self {
         MeshData {
@@ -105,6 +116,8 @@ impl MeshData {
             vn: vec![],
             vt: vec![],
             f: vec![],
+
+            material: Material::new(),
 
             running_center: Vec3::from([0.0, 0.0, 0.0]),
             running_volume: 0.0,
@@ -173,6 +186,19 @@ impl MeshData {
                 None => None,
             },
         })
+    }
+
+    pub fn material(&self) -> &Material{
+        &self.material
+    }
+
+    pub fn material_mut(&mut self) -> &mut Material{
+        &mut self.material
+    }
+
+    /// object can only have one material - this leads to various issues, but is generally fine
+    pub fn set_material(&mut self, material: Material) {
+        self.material = material
     }
 
     /// adds a tri to the index buffer
