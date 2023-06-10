@@ -85,14 +85,17 @@ fn parse_texture_coords(tokens: &[&str]) -> ObjResult<Vec2> {
     if !matches!(tokens.len(), 3 | 4) {
         return Err(WavefrontObjError::InvalidTexturePosFormat.into());
     }
-    tokens
+    let mut res: ObjResult<Vec2> = tokens
         .iter()
         .skip(1)
         .take(2)
         .map(|t| t.parse())
         .collect::<Result<Vec<f32>, _>>().map_err(|e| Into::<Box::<dyn Error>>::into(Box::new(e)))
         .map(|v| TryInto::<[f32; 2]>::try_into(v).map_err(|_| WavefrontObjError::InvalidTexturePosFormat.into()))?
-        .map(Into::into)
+        .map(Into::into);
+
+    res.as_mut().map(|res| {res.x = 1.0 - res.x;}).unwrap_or(());
+    res
 }
 
 fn parse_face(tokens: &[&str]) -> ObjResult<[VertexIndexed; 3]> {

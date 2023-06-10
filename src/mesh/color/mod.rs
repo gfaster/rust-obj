@@ -96,13 +96,13 @@ impl From<Color> for (u8, u8, u8, u8) {
 
 impl From<ColorFloat> for Color {
     fn from(value: ColorFloat) -> Self {
-        Color { r: value.r as u8, g: value.g as u8, b: value.b as u8, a: value.a as u8 }
+        Color { r: (value.r * 256.0) as u8, g: (value.g * 256.0) as u8, b: (value.b * 256.0) as u8, a: (value.a * 256.0) as u8 }
     }
 }
 
 impl From<Color> for ColorFloat {
     fn from(value: Color) -> Self {
-        ColorFloat { r: value.r as f32, g: value.g as f32, b: value.b as f32, a: value.a as f32 }
+        ColorFloat { r: value.r as f32 / 256.0, g: value.g as f32 / 256.0, b: value.b as f32 / 256.0, a: value.a as f32 / 256.0 }
     }
 }
 

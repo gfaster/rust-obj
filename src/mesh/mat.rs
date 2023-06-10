@@ -4,7 +4,7 @@ use image::RgbaImage;
 
 use super::color::ColorFloat;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Material {
     name: String,
     diffuse: ColorFloat,
@@ -23,8 +23,8 @@ impl Material {
         Self {
             name: "New Material".to_string(),
             diffuse: Default::default(),
-            ambient: Default::default(),
-            specular: Default::default(),
+            ambient: [0.05, 0.05, 0.05].into(),
+            specular: [0.0, 0.0, 0.0].into(),
             ambient_map: Default::default(),
             diffuse_map: Default::default(),
             normal_map: Default::default(),
@@ -103,7 +103,7 @@ impl Material {
                 ["Ns", factor] => ret.spec_exp = factor.parse()?,
                 ["map_Ka", map_file] => ret.ambient_map = Some(read_map(path.as_ref().with_file_name(map_file))?),
                 ["map_Kd", map_file] => ret.diffuse_map = Some(read_map(path.as_ref().with_file_name(map_file))?),
-                ["bump", map_file] => ret.normal_map = Some(read_map(path.as_ref().with_file_name(map_file))?),
+                ["bump", map_file] | ["map_Bump", map_file] => ret.normal_map = Some(read_map(path.as_ref().with_file_name(map_file))?),
                 ["map_Ks", _map_file] => (),
                 ["illum", _illium] => (),
                 ["Ke", _r, _g, _b] => (),
@@ -125,6 +125,25 @@ impl Default for Material {
         let mut ret = Self::new();
         ret.name = "Default Material".to_string();
         ret
+    }
+}
+
+impl std::fmt::Debug for Material {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug_struct = f.debug_struct("Material");
+
+        debug_struct
+            .field("name", &self.name)
+            .field("diffuse", &self.diffuse.to_string())
+            .field("ambient", &self.ambient.to_string())
+            .field("specular", &self.specular.to_string())
+            .field("specular factor", &self.spec_exp);
+
+        if let Some(m) = &self.diffuse_map {
+            debug_struct.field("diffuse_map", &m.dimensions());
+        }
+
+        debug_struct.finish_non_exhaustive()
     }
 }
 

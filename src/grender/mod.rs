@@ -97,6 +97,7 @@ pub fn display_model(m: mesh::MeshData) {
 
     let center = m.centroid();
 
+    dbg!(&material);
     let gl_tex = if let Some(img) = material.diffuse_map() {
         let dim = img.dimensions();
         let img = glium::texture::RawImage2d::from_raw_rgba_reversed(&img.clone().into_raw(), dim);
@@ -166,7 +167,8 @@ pub fn display_model(m: mesh::MeshData) {
     event_loop.run(move |ev, _, control_flow| {
         let view = camera.get_transform();
         let modelview = view * transform;
-        let light_pos = camera.pos + glm::Vec3::from([2.0, 2.0, 0.0f32]);
+        // let light_pos = camera.pos + glm::Vec3::from([2.0, 2.0, 0.0f32]);
+        let light_pos = camera.pos;
 
         let uniforms = uniform! {
             cam_transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&view),
@@ -177,6 +179,8 @@ pub fn display_model(m: mesh::MeshData) {
             light_pos: *AsRef::<[f32; 3]>::as_ref(&light_pos),
             shading_routine: (shader_subroutine.as_str(), ShaderStage::Fragment),
             base_diffuse: Into::<[f32; 4]>::into(material.diffuse()),
+            base_ambient: Into::<[f32; 4]>::into(material.ambient()),
+            base_specular: Into::<[f32; 4]>::into(material.specular()),
             base_specular_factor: material.base_specular_factor(),
             diffuse_map: &gl_tex,
         };

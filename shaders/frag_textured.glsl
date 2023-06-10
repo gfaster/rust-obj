@@ -9,11 +9,13 @@ in vec2 v_texCoord;
 in float v_depth;
 
 
-uniform sampler2D diffuse_map; 
-//uniform sampler2D u_NormalMap; 
+uniform sampler2D diffuse_map;
+//uniform sampler2D u_NormalMap;
 
 uniform vec3 light_pos;
 uniform vec4 base_diffuse;
+uniform vec4 base_ambient;
+uniform vec4 base_specular;
 uniform float base_specular_factor;
 
 subroutine vec4 shading_routine_t();
@@ -26,8 +28,6 @@ subroutine(shading_routine_t) vec4 depth_buffer() {
 
 subroutine(shading_routine_t) vec4 shaded() {
     vec3 base_color = texture(diffuse_map, v_texCoord).rgb;
-    float spec_strength = 0.1f;
-    float ambient_strength = 0.05f;
 
     vec3 norm = normalize(v_fragNorm);
     vec3 light_dir = normalize(light_pos - v_fragPos);
@@ -36,9 +36,9 @@ subroutine(shading_routine_t) vec4 shaded() {
     float spec = max(dot(norm, reflect_dir), 0.0f);
     float diff = max(dot(norm, light_dir), 0.0f);
 
-    vec3 diff_color = diff * base_color;
-    vec3 spec_color = pow(spec, base_specular_factor) * vec3(1.0f) * spec_strength;
-    vec3 ambient_color = base_color * ambient_strength;
+    vec3 diff_color = diff * base_color * 0.5f;
+    vec3 spec_color = pow(spec, base_specular_factor) * base_specular.rgb * 1.0f;
+    vec3 ambient_color = base_ambient.rgb * 0.1f;
 
     return vec4(diff_color + spec_color + ambient_color, 1.0f); 
 }
