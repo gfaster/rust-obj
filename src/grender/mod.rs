@@ -2,9 +2,13 @@ use std::fs;
 use std::time;
 
 use crate::mesh;
+use crate::mesh::MeshData;
 use crate::mesh::mat::Material;
 use crate::mesh::GlVertex;
 use glium::glutin::error::ExternalError;
+use glium::glutin::platform::unix::HeadlessContextExt;
+use glium::texture::ClientFormat;
+use glium::texture::RawImage2d;
 use glium::{
     glutin::{self, event::ElementState, window::CursorGrabMode},
     implement_vertex,
@@ -12,7 +16,8 @@ use glium::{
     texture::CompressedSrgbTexture2d,
     uniform, DrawParameters, IndexBuffer, Program, Surface, VertexBuffer,
 };
-use std::io::Write;
+use image::GrayImage;
+use nalgebra_glm::Vec3;
 
 use self::controls::Camera;
 
@@ -272,6 +277,138 @@ pub fn display_model(m: mesh::MeshData) {
     });
 }
 
+#[allow(unused_mut, unused_variables)]
+fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<String> {
+    let mut event_loop = glutin::event_loop::EventLoop::new();
+    let ctx = glutin::ContextBuilder::new().with_depth_buffer(24).build_surfaceless(&event_loop).unwrap();
+    let facade = glium::backend::glutin::headless::Headless::new(ctx).unwrap();
+    
+    let vertex_shader =
+        fs::read_to_string("./shaders/vert.glsl").expect("unable to open vert.glsl");
+    let fragment_shader = 
+        fs::read_to_string("./shaders/frag.glsl").expect("unable to open frag.glsl");
+
+    // let vertex_shader = include_str!("../../shaders/vert.glsl");
+    // let fragment_shader = include_str!("../../shaders/frag.glsl");
+
+    let program = Program::from_source(
+        &facade,
+        vertex_shader.as_ref(),
+        fragment_shader.as_ref(),
+        None,
+    )
+    .unwrap();
+
+    if m.normalize_factor() == 0.0 {
+        panic!("model has a normalization factor of zero - there are no vertices");
+    }
+    let scale: f32 = 1.5 / dbg!(m.normalize_factor());
+
+    let center = m.centroid();
+
+    let buffers: mesh::MeshDataBuffs = m.into();
+
+    let aspect = facade.get_framebuffer_dimensions();
+    let near_plane: f32 = 1.0;
+    let far_plane: f32 = 4.0;
+    let perspective = glm::perspective(
+        aspect.0 as f32 / aspect.1 as f32,
+        1.0,
+        near_plane,
+        far_plane,
+    );
+
+    let transform = glm::Mat4::from([
+        [scale, 0.0, 0.0, 0.0],
+        [0.0, scale, 0.0, 0.0],
+        [0.0, 0.0, scale, 0.0],
+        [0.0, 0.0, 0.0, 1.0f32],
+    ]) * glm::Mat4::from([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [-center.x, -center.y, -center.z, 1.0],
+    ]);
+
+    // eprintln!("{:.2}", transform);
+    let model_normal_matrix = glm::transpose(&glm::inverse(&glm::mat4_to_mat3(&transform)));
+
+    for _v in &buffers.verts {
+        // let pos = v.position;
+        // let pos4 = [pos[0], pos[1], pos[2], 1.0f32];
+        // eprintln!("vpos: {}", scale * (glm::Mat4::from(perspective) *  glm::Mat4::from(transform) * glm::Vec4::from(pos4)));
+
+        // eprintln!("vnormal: {}", glm::Vec3::from(v.normal));
+    }
+
+    let params = glium::DrawParameters {
+        depth: glium::Depth {
+            test: glium::draw_parameters::DepthTest::IfLess,
+            write: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let vbuffer = VertexBuffer::new(&facade, &buffers.verts).unwrap();
+    let ibuffer = IndexBuffer::new(
+        &facade,
+        glium::index::PrimitiveType::TrianglesList,
+        &buffers.indices,
+    )
+    .unwrap();
+
+    let mut camera = controls::Camera::new();
+    let mode = DrawMode::DepthBuffer;
+    let shader_subroutine = FragSubroutine::DepthBuffer;
+    let light_pos = camera.pos;
+    // let light_pos = camera.pos + glm::Vec3::from([2.0, 2.0, 0.0f32]);
+
+    let mut pos_iter = pos.iter();
+    let mut out: Vec<String> = Vec::with_capacity(pos.len());
+
+    event_loop.run(move |ev, _, control_flow| {
+        let view = camera.get_transform();
+        let modelview = view * transform;
+
+
+        let uniforms = uniform! {
+            cam_transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&view),
+            modelview: *AsRef::<[[f32; 4]; 4]>::as_ref(&modelview),
+            transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&transform),
+            normal_matrix: *AsRef::<[[f32; 3]; 3]>::as_ref(&model_normal_matrix),
+            projection_matrix: *AsRef::<[[f32; 4]; 4]>::as_ref(&perspective),
+            light_pos: *AsRef::<[f32; 3]>::as_ref(&light_pos),
+            shading_routine: (shader_subroutine.as_str(), ShaderStage::Fragment),
+            base_diffuse: [0.0_f32,0.0_f32,0.0_f32,0.0_f32],
+            base_ambient: [0.0_f32,0.0_f32,0.0_f32,0.0_f32],
+            base_specular: [0.0_f32,0.0_f32,0.0_f32,0.0_f32],
+            base_specular_factor: [0.0_f32,0.0_f32,0.0_f32,0.0_f32],
+        };
+
+        let mut target = facade.draw();
+        target.clear_color_and_depth(mode.clear_color(), 1.0);
+        target
+            .draw(&vbuffer, &ibuffer, &program, &uniforms, &params)
+            .unwrap();
+        target.finish().unwrap();
+
+        let next_frame_time =
+            std::time::Instant::now() + std::time::Duration::from_nanos(16_666_667);
+
+        *control_flow = glutin::event_loop::ControlFlow::WaitUntil(next_frame_time);
+        match ev {
+            glutin::event::Event::WindowEvent { event, .. } => match event {
+                glutin::event::WindowEvent::CloseRequested => {
+                    *control_flow = glutin::event_loop::ControlFlow::Exit;
+                }
+                _ => (),
+            },
+            _ => (),
+        }
+    })
+}
+
 fn handle_window_focus(focused: bool, display: &glium::Display) -> Result<(), ExternalError> {
     if focused {
         display
@@ -362,12 +499,12 @@ fn screenshot_dir() -> Result<String, Box<dyn std::error::Error>> {
 
 fn save_screenshot(
     display: &glium::Display,
-    cam: &Camera,
-    near_far_planes: (f32, f32),
+    _cam: &Camera,
+    _near_far_planes: (f32, f32),
 ) -> Result<String, Box<dyn std::error::Error>> {
     let base_path = screenshot_dir()?;
     let name = format!(
-        "{}.ppm",
+        "{}.png",
         time::SystemTime::now()
             .duration_since(time::UNIX_EPOCH)
             .unwrap()
@@ -375,50 +512,25 @@ fn save_screenshot(
     );
 
     let full_path = format!("{}/{}", &base_path, &name);
-    let mut file = fs::File::options()
-        .write(true)
-        .create_new(true)
-        .open(&full_path)?;
-    let mut buffer = Vec::<u8>::new();
 
-    let img: Vec<Vec<(u8, u8, u8, u8)>> = display.read_front_buffer()?;
     let dim = display.get_framebuffer_dimensions();
-
-    writeln!(buffer, "P3")?;
-    writeln!(
-        buffer,
-        "# Camera position: {}, {}, {}",
-        cam.pos.x, cam.pos.y, cam.pos.z
-    )?;
-    writeln!(buffer, "# Camera near plane: {}", near_far_planes.0)?;
-    writeln!(buffer, "# Camera far plane: {}", near_far_planes.1)?;
-    writeln!(buffer, "{}, {}", dim.0, dim.1)?;
-    writeln!(buffer, "255")?;
-
-    for row in img.iter().rev() {
-        for pix in row {
-            write!(buffer, "{} {} {} ", pix.0, pix.1, pix.2)?;
-        }
-        writeln!(buffer)?;
-
-        if buffer.len() >= 1024 * 1024 * 8 {
-            file.write_all(&buffer)?;
-            buffer.clear()
-        }
-    }
-    file.write_all(&buffer)?;
+    let raw_img = display.read_front_buffer::<RawImage2d<u8>>()?;
+    assert!(matches!(raw_img.format, ClientFormat::U8U8U8U8), "To save an image, we assume rgba8 image format");
+    let mut img = image::RgbaImage::from_raw(dim.0, dim.1, raw_img.data.to_vec()).unwrap();
+    image::imageops::flip_vertical_in_place(&mut img);
+    img.save(full_path.clone())?;
 
     Ok(full_path)
 }
 
 fn save_screenshot_greyscale(
     display: &glium::Display,
-    cam: &Camera,
-    near_far_planes: (f32, f32),
+    _cam: &Camera,
+    _near_far_planes: (f32, f32),
 ) -> Result<String, Box<dyn std::error::Error>> {
     let base_path = screenshot_dir()?;
     let name = format!(
-        "{}.pgm",
+        "{}.png",
         time::SystemTime::now()
             .duration_since(time::UNIX_EPOCH)
             .unwrap()
@@ -426,42 +538,14 @@ fn save_screenshot_greyscale(
     );
 
     let full_path = format!("{}/{}", &base_path, &name);
-    let mut file = fs::File::options()
-        .write(true)
-        .create_new(true)
-        .open(&full_path)?;
-    let mut buffer = Vec::<u8>::new();
 
-    let img: Vec<Vec<(u8, u8, u8, u8)>> = display.read_front_buffer()?;
     let dim = display.get_framebuffer_dimensions();
+    let raw_img = display.read_front_buffer::<RawImage2d<u8>>()?;
+    assert!(matches!(raw_img.format, ClientFormat::U8U8U8U8), "To save an image, we assume rgba8 image format");
+    let mut img: GrayImage = image::DynamicImage::from(image::RgbaImage::from_raw(dim.0, dim.1, raw_img.data.to_vec()).unwrap()).into_luma8();
 
-    writeln!(buffer, "P2")?;
-    writeln!(
-        buffer,
-        "# Camera position: {}, {}, {}",
-        cam.pos.x, cam.pos.y, cam.pos.z
-    )?;
-    writeln!(buffer, "# Camera near plane: {}", near_far_planes.0)?;
-    writeln!(buffer, "# Camera far plane: {}", near_far_planes.1)?;
-    writeln!(buffer, "{}, {}", dim.0, dim.1)?;
-    writeln!(buffer, "255")?;
-
-    for row in img.iter().rev() {
-        for pix in row {
-            write!(
-                buffer,
-                "{} ",
-                (pix.0 as u32 + pix.1 as u32 + pix.2 as u32) / 3
-            )?;
-        }
-        writeln!(buffer)?;
-
-        if buffer.len() >= 1024 * 1024 * 8 {
-            file.write_all(&buffer)?;
-            buffer.clear()
-        }
-    }
-    file.write_all(&buffer)?;
+    image::imageops::flip_vertical_in_place(&mut img);
+    img.save(full_path.clone())?;
 
     Ok(full_path)
 }

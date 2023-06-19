@@ -28,6 +28,14 @@ impl Camera {
         self.pos - self.target
     }
 
+    pub fn set_rel_pos(&mut self, pos: Vec3) {
+        self.pos = pos + self.target;
+    }
+
+    pub fn set_pos(&mut self, pos: Vec3) {
+        self.pos = pos;
+    }
+
     /// orbit camera around the target on the current ball the camera is on (centered at the
     /// target)
     ///
