@@ -13,8 +13,10 @@ mod wavefrontobj;
 use image;
 
 fn main() {
-    let img1 = image::open("");
-    let img2 = image::open("");
+    let img1 = image::open("").unwrap();
+    let img2 = image::open("").unwrap();
 
-    let pixel_difference = 
+    let pd = depth_classify::pixel_difference(img1, img2).unwrap();
+    pd.save("").unwrap();
+
 }

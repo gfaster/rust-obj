@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use image::{RgbaImage, GrayImage, Pixel};
+use image::{GrayImage, Pixel, DynamicImage, GenericImageView};
 use image::imageops::colorops::grayscale;
 
 #[derive(Debug)]
@@ -16,7 +16,7 @@ impl Display for Error {
 
 impl std::error::Error for Error { }
 
-fn pixel_difference(img1: RgbaImage, img2: RgbaImage) -> Result<GrayImage, Box<dyn std::error::Error>> {
+pub fn pixel_difference(img1: DynamicImage, img2: DynamicImage) -> Result<GrayImage, Box<dyn std::error::Error>> {
     if img1.dimensions() != img2.dimensions() {
         return Err(Error::MismatchedDimensions.into());
     }
@@ -33,6 +33,6 @@ fn pixel_difference(img1: RgbaImage, img2: RgbaImage) -> Result<GrayImage, Box<d
     Ok(ret)
 }
 
-fn spectral_loss(img1: RgbaImage, img2: RgbaImage) -> Result<GrayImage, Box<dyn std::error::Error>> {
+pub fn spectral_loss(img1: DynamicImage, img2: DynamicImage) -> Result<GrayImage, Box<dyn std::error::Error>> {
     todo!()
 }
