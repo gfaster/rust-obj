@@ -27,7 +27,7 @@ pub fn pixel_difference(img1: DynamicImage, img2: DynamicImage) -> Result<GrayIm
 
     let mut ret = GrayImage::new(width, height);
     for (x, y, pixel) in gray_img1.enumerate_pixels() {
-        ret.put_pixel(x, y, pixel.map(|v| v.abs_diff(gray_img2.get_pixel(x, y).channels()[0])))
+        ret.put_pixel(x, y, pixel.map(|v| v.abs_diff(gray_img2.get_pixel(x, y).channels()[0])));    
     }
     
     Ok(ret)
