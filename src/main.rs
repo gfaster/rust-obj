@@ -10,12 +10,11 @@ mod grender;
 mod mesh;
 mod wavefrontobj;
 
-fn main() {
-    let input = std::env::args()
-        .nth(1)
-        .unwrap_or("./test_assets/bunny.obj".to_string());
+use image;
 
-    let obj = wavefrontobj::load(input).expect("pass a valid file path");
-    // dbg!(obj.tris().collect::<Vec<_>>());
-    grender::display_model(obj);
+fn main() {
+    let img1 = image::open("");
+    let img2 = image::open("");
+
+    let pixel_difference = 
 }
