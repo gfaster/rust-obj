@@ -1,13 +1,14 @@
+extern crate glium;
+
 use std::fs;
 use std::ops::Deref;
-use std::thread;
 use std::time;
 
 use crate::mesh;
 use crate::mesh::mat::Material;
 use crate::mesh::GlVertex;
 use crate::mesh::MeshData;
-use glium::backend::Facade;
+use glium::CapabilitiesSource;
 use glium::glutin::error::ExternalError;
 use glium::glutin::platform::unix::HeadlessContextExt;
 use glium::texture::ClientFormat;
@@ -77,6 +78,7 @@ pub fn display_model(m: mesh::MeshData) {
     let wb = glutin::window::WindowBuilder::new();
     let cb = glutin::ContextBuilder::new().with_depth_buffer(24);
     let display = glium::Display::new(wb, cb, &event_loop).unwrap();
+    dbg!(display.get_capabilities());
 
     let material = m.material().clone();
 
@@ -284,12 +286,17 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     let mut out: Vec<String> = Vec::with_capacity(pos.len());
 
     let ctx = glutin::ContextBuilder::new()
-        .with_depth_buffer(24)
-        .with_stencil_buffer(8)
-        .build_osmesa((dim.0, dim.1).into())
+        .with_gl(glutin::GlRequest::Latest)
+        .with_gl_profile(glutin::GlProfile::Core)
+        .build_osmesa(dim.into())
         .unwrap();
     let facade = glium::backend::glutin::headless::Headless::new(ctx).unwrap();
 
+    
+
+    dbg!(facade.get_capabilities());
+    dbg!(facade.get_opengl_version());
+    dbg!(facade.get_opengl_profile());
     dbg!(facade.get_framebuffer_dimensions());
 
     let vertex_shader =
@@ -402,6 +409,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         let mut target = facade.draw();
         // target.clear_color_and_depth(mode.clear_color(), 1.0);
         target.clear_all(mode.clear_color(), 1.0, 0xFF);
+        dbg!(target.has_depth_buffer());
         target
             .draw(&vbuffer, &ibuffer, &program, &uniforms, &params)
             .unwrap();

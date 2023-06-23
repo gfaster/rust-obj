@@ -1,14 +1,22 @@
 #![allow(dead_code)]
 #![doc = include_str!("../README.md")]
 
-extern crate glium;
 extern crate nalgebra_glm as glm;
 
 mod depth_classify;
 mod error;
-mod grender;
 mod mesh;
 mod wavefrontobj;
+
+#[cfg(feature = "glium")]
+mod grender;
+#[cfg(feature = "glium")]
+use grender as renderer;
+
+#[cfg(feature = "vulkano")]
+mod vkrender;
+#[cfg(feature = "vulkano")]
+use vkrender as renderer;
 
 fn main() {
     let input = std::env::args()
@@ -20,5 +28,5 @@ fn main() {
     // grender::display_model(obj);
 
     // for some reason, we only get 800x600, and anything else will just get weird cropping
-    dbg!(grender::depth_screenshots(obj, (800, 600), &[glm::vec3(3.0, 0.0, 0.0)]));
+    dbg!(renderer::depth_screenshots(obj, (800, 600), &[glm::vec3(3.0, 0.0, 0.0)]));
 }
