@@ -214,17 +214,13 @@ impl From<ColorFloat> for [u8; 4] {
 impl From<ColorFloat> for glm::Vec4 {
     fn from(value: ColorFloat) -> Self {
         // Saftey: ColorFloat has repr(C) and Vec4 has array layout
-        unsafe {
-            std::mem::transmute(value)
-        }
+        unsafe { std::mem::transmute(value) }
     }
 }
 
 impl From<glm::Vec4> for ColorFloat {
     fn from(value: glm::Vec4) -> Self {
         // Saftey: ColorFloat has repr(C) and Vec4 has array layout
-        unsafe {
-            std::mem::transmute(value)
-        }
+        unsafe { std::mem::transmute(value) }
     }
 }

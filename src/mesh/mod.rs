@@ -48,14 +48,18 @@ impl From<Vertex> for GlVertex {
     }
 }
 
-pub struct MeshDataBuffs<Vtx> where
-    Vtx: std::convert::From<Vertex>
-    {
+pub struct MeshDataBuffs<Vtx>
+where
+    Vtx: std::convert::From<Vertex>,
+{
     pub verts: Vec<Vtx>,
     pub indices: Vec<u32>,
 }
 
-impl<Vtx> From<MeshData> for MeshDataBuffs<Vtx> where Vtx: std::convert::From<Vertex> {
+impl<Vtx> From<MeshData> for MeshDataBuffs<Vtx>
+where
+    Vtx: std::convert::From<Vertex>,
+{
     fn from(value: MeshData) -> Self {
         let mut added: HashMap<&VertexIndexed, usize> = Default::default();
         let mut ret: Self = Self {

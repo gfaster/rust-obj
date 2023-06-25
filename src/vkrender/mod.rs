@@ -1,34 +1,37 @@
 use std::sync::Arc;
 
-use vulkano::buffer::{BufferContents, Buffer, BufferCreateInfo, BufferUsage};
-use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents};
+use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::command_buffer::{
+    AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
+};
 use vulkano::device::physical::PhysicalDeviceType;
-use vulkano::device::{DeviceExtensions, QueueFlags, Device, DeviceCreateInfo, QueueCreateInfo};
+use vulkano::device::{Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo, QueueFlags};
 use vulkano::image::view::ImageView;
-use vulkano::image::{ImageUsage, SwapchainImage, ImageAccess};
+use vulkano::image::{ImageAccess, ImageUsage, SwapchainImage};
 use vulkano::instance::Instance;
-use vulkano::sync::{GpuFuture, FlushError};
-use vulkano::{VulkanLibrary, render_pass, sync};
-use vulkano::memory::allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryUsage};
-use vulkano::pipeline::GraphicsPipeline;
+use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
 use vulkano::pipeline::graphics::vertex_input::{self, Vertex};
-use vulkano::pipeline::graphics::viewport::{ViewportState, Viewport};
-use vulkano::render_pass::{Subpass, Framebuffer, RenderPass};
-use vulkano::swapchain::{Swapchain, SwapchainCreateInfo, SwapchainCreationError, acquire_next_image, AcquireError, SwapchainPresentInfo};
+use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
+use vulkano::pipeline::GraphicsPipeline;
+use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
+use vulkano::swapchain::{
+    acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
+    SwapchainPresentInfo,
+};
+use vulkano::sync::{FlushError, GpuFuture};
+use vulkano::{render_pass, sync, VulkanLibrary};
 use vulkano_win::VkSurfaceBuild;
 use winit::event::{Event, WindowEvent};
-use winit::event_loop::{EventLoop, ControlFlow};
-use winit::window::{WindowBuilder, Window};
+use winit::event_loop::{ControlFlow, EventLoop};
+use winit::window::{Window, WindowBuilder};
 
 use crate::glm::Vec3;
-use crate::mesh::{self, MeshData, MeshDataBuffs};
 use crate::mesh::mtl::Material;
+use crate::mesh::{self, MeshData, MeshDataBuffs};
 
-
-
-// format attributes use [`vulkano::format::Format`] enum fields 
+// format attributes use [`vulkano::format::Format`] enum fields
 #[derive(BufferContents, vertex_input::Vertex)]
 #[repr(C)]
 struct VkVertex {
@@ -47,11 +50,10 @@ impl From<mesh::Vertex> for VkVertex {
         Self {
             position: value.pos.into(),
             normal: value.normal.into(),
-            tex: value.tex.into()
+            tex: value.tex.into(),
         }
     }
 }
-
 
 pub fn display_model(m: mesh::MeshData) {
     // I'm using the Vulkano examples to learn here
@@ -122,20 +124,26 @@ pub fn display_model(m: mesh::MeshData) {
                 ..Default::default()
             }],
             ..Default::default()
-        }
-    ).unwrap();
+        },
+    )
+    .unwrap();
 
     // only have one queue, so we just use that
     let queue = queues.next().unwrap();
 
     let (mut swapchain, images) = {
-        let surface_capabilites = device.physical_device()
+        let surface_capabilites = device
+            .physical_device()
             .surface_capabilities(&surface, Default::default())
             .unwrap();
-        
-        let image_format = Some(device.physical_device()
-            .surface_formats(&surface, Default::default())
-            .unwrap()[0].0);
+
+        let image_format = Some(
+            device
+                .physical_device()
+                .surface_formats(&surface, Default::default())
+                .unwrap()[0]
+                .0,
+        );
 
         let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
@@ -152,10 +160,14 @@ pub fn display_model(m: mesh::MeshData) {
 
                 image_usage: ImageUsage::COLOR_ATTACHMENT,
 
-                composite_alpha: surface_capabilites.supported_composite_alpha.into_iter().next().unwrap(),
+                composite_alpha: surface_capabilites
+                    .supported_composite_alpha
+                    .into_iter()
+                    .next()
+                    .unwrap(),
 
                 ..Default::default()
-            }
+            },
         )
         .unwrap()
     };
@@ -164,10 +176,13 @@ pub fn display_model(m: mesh::MeshData) {
 
     // setup done - now to mesh
 
-    let MeshDataBuffs {verts: vertices, indices}: MeshDataBuffs<VkVertex> = m.into(); 
+    let MeshDataBuffs {
+        verts: vertices,
+        indices,
+    }: MeshDataBuffs<VkVertex> = m.into();
 
     let vertex_buffer = Buffer::from_iter(
-        &memory_allocator, 
+        &memory_allocator,
         BufferCreateInfo {
             usage: BufferUsage::VERTEX_BUFFER,
             ..Default::default()
@@ -176,10 +191,11 @@ pub fn display_model(m: mesh::MeshData) {
             usage: MemoryUsage::Upload,
             ..Default::default()
         },
-        vertices
-        ).unwrap();
+        vertices,
+    )
+    .unwrap();
     let index_buffer = Buffer::from_iter(
-        &memory_allocator, 
+        &memory_allocator,
         BufferCreateInfo {
             usage: BufferUsage::INDEX_BUFFER,
             ..Default::default()
@@ -188,10 +204,11 @@ pub fn display_model(m: mesh::MeshData) {
             usage: MemoryUsage::Upload,
             ..Default::default()
         },
-        indices
-        ).unwrap();
+        indices,
+    )
+    .unwrap();
 
-    // supposedly we could do shaders at compile time - but there is a whole mess 
+    // supposedly we could do shaders at compile time - but there is a whole mess
     mod vs {
         vulkano_shaders::shader! {
             ty: "vertex",
@@ -241,7 +258,8 @@ pub fn display_model(m: mesh::MeshData) {
             // no depth/stencil attachment for now
             depth_stencil: {},
         }
-    ).unwrap();
+    )
+    .unwrap();
 
     let pipeline = GraphicsPipeline::start()
         .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
@@ -264,7 +282,7 @@ pub fn display_model(m: mesh::MeshData) {
 
     let mut framebuffers = initialize_based_on_window(&images, render_pass.clone(), &mut viewport);
 
-    let command_buffer_allocator = 
+    let command_buffer_allocator =
         StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
     // initialization done!
@@ -274,10 +292,16 @@ pub fn display_model(m: mesh::MeshData) {
 
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
-    event_loop.run(move |event, _, control_flow|{
+    event_loop.run(move |event, _, control_flow| {
         match event {
-            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => { *control_flow = ControlFlow::Exit },
-            Event::WindowEvent { event: WindowEvent::Resized(_), .. } => { recreate_swapchain = true },
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => *control_flow = ControlFlow::Exit,
+            Event::WindowEvent {
+                event: WindowEvent::Resized(_),
+                ..
+            } => recreate_swapchain = true,
             Event::RedrawEventsCleared => {
                 // do not draw if size is zero (eg minimized)
                 let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
@@ -290,33 +314,36 @@ pub fn display_model(m: mesh::MeshData) {
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
 
                 if recreate_swapchain {
-                    let (new_swapchain, new_images) = match swapchain.recreate(SwapchainCreateInfo {
-                        image_extent: dimensions.into(),
-                        ..swapchain.create_info()
-                    }) {
+                    let (new_swapchain, new_images) =
+                        match swapchain.recreate(SwapchainCreateInfo {
+                            image_extent: dimensions.into(),
+                            ..swapchain.create_info()
+                        }) {
                             Ok(r) => r,
-                                // can happen when resizing -> easy way to fix is just restart loop
+                            // can happen when resizing -> easy way to fix is just restart loop
                             Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => return,
                             Err(e) => panic!("Failed to recreate swapchain: {e}"),
                         };
 
                     swapchain = new_swapchain;
 
-                    framebuffers = initialize_based_on_window(&new_images, render_pass.clone(), &mut viewport);
+                    framebuffers =
+                        initialize_based_on_window(&new_images, render_pass.clone(), &mut viewport);
 
                     recreate_swapchain = false;
                 }
 
                 // need to acquire image before drawing, blocks if it's not ready yet (too many
                 // commands), so it has optional timeout
-                let (image_index, suboptimal, acquire_future) = match acquire_next_image(swapchain.clone(), None) {
-                    Ok(r) => r,
-                    Err(AcquireError::OutOfDate) => {
-                        recreate_swapchain = true;
-                        return;
-                    }
-                    Err(e) => panic!("failed to acquire next image: {e}"),
-                };
+                let (image_index, suboptimal, acquire_future) =
+                    match acquire_next_image(swapchain.clone(), None) {
+                        Ok(r) => r,
+                        Err(AcquireError::OutOfDate) => {
+                            recreate_swapchain = true;
+                            return;
+                        }
+                        Err(e) => panic!("failed to acquire next image: {e}"),
+                    };
 
                 // sometimes this just happens, usually it's the user's fault. The image will still
                 // display, just poorly. It may become an out of date error if we don't regen.
@@ -324,13 +351,25 @@ pub fn display_model(m: mesh::MeshData) {
                     recreate_swapchain = true;
                 }
 
-                let mut builder = AutoCommandBufferBuilder::primary(&command_buffer_allocator, queue.queue_family_index(), CommandBufferUsage::OneTimeSubmit).unwrap();
+                let mut builder = AutoCommandBufferBuilder::primary(
+                    &command_buffer_allocator,
+                    queue.queue_family_index(),
+                    CommandBufferUsage::OneTimeSubmit,
+                )
+                .unwrap();
 
                 // we can not do a render pass if we use dynamic
-                builder.begin_render_pass(RenderPassBeginInfo {
-                    clear_values: vec![Some([0.0, 0.0, 1.0, 1.0].into())],
-                    ..RenderPassBeginInfo::framebuffer(framebuffers[image_index as usize].clone())
-                }, SubpassContents::Inline).unwrap()
+                builder
+                    .begin_render_pass(
+                        RenderPassBeginInfo {
+                            clear_values: vec![Some([0.0, 0.0, 1.0, 1.0].into())],
+                            ..RenderPassBeginInfo::framebuffer(
+                                framebuffers[image_index as usize].clone(),
+                            )
+                        },
+                        SubpassContents::Inline,
+                    )
+                    .unwrap()
                     .set_viewport(0, [viewport.clone()])
                     .bind_pipeline_graphics(pipeline.clone())
                     .bind_vertex_buffers(0, vertex_buffer.clone())
@@ -344,18 +383,21 @@ pub fn display_model(m: mesh::MeshData) {
                 let command_buffer = builder.build().unwrap();
 
                 let future = previous_frame_end
-                .take()
+                    .take()
                     .unwrap()
                     .join(acquire_future)
                     .then_execute(queue.clone(), command_buffer)
                     .unwrap()
-                    .then_swapchain_present(queue.clone(), SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index))
+                    .then_swapchain_present(
+                        queue.clone(),
+                        SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index),
+                    )
                     .then_signal_fence_and_flush();
 
                 match future {
                     Ok(f) => {
                         previous_frame_end = Some(f.boxed());
-                    },
+                    }
                     Err(FlushError::OutOfDate) => {
                         recreate_swapchain = true;
                         previous_frame_end = Some(sync::now(device.clone()).boxed());
@@ -373,22 +415,25 @@ pub fn display_model(m: mesh::MeshData) {
 fn initialize_based_on_window(
     images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
-    viewport: &mut Viewport
+    viewport: &mut Viewport,
 ) -> Vec<Arc<Framebuffer>> {
     let dimensions = images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
 
-    images.iter()
-    .map(|image| {
+    images
+        .iter()
+        .map(|image| {
             let view = ImageView::new_default(image.clone()).unwrap();
             Framebuffer::new(
                 render_pass.clone(),
                 render_pass::FramebufferCreateInfo {
                     attachments: vec![view],
                     ..Default::default()
-                }
-            ).unwrap()
-        }).collect::<Vec<_>>()
+                },
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>()
 }
 
 pub fn depth_screenshots(_m: MeshData, _dim: (u32, u32), _pos: &[Vec3]) -> Vec<String> {
