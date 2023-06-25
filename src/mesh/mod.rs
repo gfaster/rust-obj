@@ -3,13 +3,13 @@
 use std::collections::HashMap;
 
 pub mod color;
-pub mod mat;
+pub mod mtl;
 mod tri;
 
 pub use glm::{Vec2, Vec3};
 pub use tri::*;
 
-use self::mat::Material;
+use self::mtl::Material;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
 pub struct VertexIndexed {

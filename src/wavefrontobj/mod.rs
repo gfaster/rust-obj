@@ -6,7 +6,7 @@ use std::io::BufReader;
 use std::path::Path;
 
 use crate::glm::{Vec2, Vec3};
-use crate::mesh::mat::Material;
+use crate::mesh::mtl::Material;
 use crate::mesh::{self, VertexIndexed};
 
 #[derive(Debug)]

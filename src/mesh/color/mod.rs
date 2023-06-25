@@ -113,6 +113,7 @@ impl From<Color> for ColorFloat {
 
 /// color with rgb component range between 0.0 and 1.0
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 pub struct ColorFloat {
     pub r: f32,
     pub g: f32,
@@ -207,5 +208,23 @@ impl From<ColorFloat> for [u8; 4] {
             (value.b * 256.0) as u8,
             (value.a * 256.0) as u8,
         ]
+    }
+}
+
+impl From<ColorFloat> for glm::Vec4 {
+    fn from(value: ColorFloat) -> Self {
+        // Saftey: ColorFloat has repr(C) and Vec4 has array layout
+        unsafe {
+            std::mem::transmute(value)
+        }
+    }
+}
+
+impl From<glm::Vec4> for ColorFloat {
+    fn from(value: glm::Vec4) -> Self {
+        // Saftey: ColorFloat has repr(C) and Vec4 has array layout
+        unsafe {
+            std::mem::transmute(value)
+        }
     }
 }

@@ -7,14 +7,16 @@ layout(location = 1) in vec3 v_fragNorm;
 layout(location = 2) in vec2 v_texCoord;
 layout(location = 3) in float v_depth;
 
-layout(set = 1, binding = 0) uniform mtlBuffer {
+// rust structs are generated from this strut name
+layout(set = 1, binding = 0) uniform ShaderMtl {
     vec4 base_diffuse;
     vec4 base_ambient;
     vec4 base_specular;
     float base_specular_factor;
 } Mtl;
 
-layout(set = 2, binding = 0) uniform lightBuffer {
+// rust structs are generated from this struct name
+layout(set = 2, binding = 0) uniform ShaderLight {
     vec3 light_pos;
 } Light;
 

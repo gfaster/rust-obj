@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![warn(clippy::all)]
 #![doc = include_str!("../README.md")]
 
 extern crate nalgebra_glm as glm;

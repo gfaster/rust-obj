@@ -12,14 +12,16 @@ layout(location = 2) out vec2 v_texCoord;
 layout(location = 3) out float v_depth;
 
 
-layout(set = 0, binding = 0) uniform matBuffer {
+// rust structs are generated from this struct name
+layout(set = 0, binding = 0) uniform ShaderMatBuffer {
   mat4 transform;
   mat4 modelview;
   mat4 projection_matrix;
   mat3 normal_matrix;
 } Matrices;
 
-layout(set = 0, binding = 3) uniform camAttrBuffer {
+// rust structs are generated from this struct name
+layout(set = 0, binding = 3) uniform ShaderCamAttr {
   float near;
   float far;
 } CamAttr;

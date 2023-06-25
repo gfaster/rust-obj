@@ -1,19 +1,30 @@
+use std::sync::Arc;
 
 use vulkano::buffer::{BufferContents, Buffer, BufferCreateInfo, BufferUsage};
+use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents};
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::device::physical::PhysicalDeviceType;
 use vulkano::device::{DeviceExtensions, QueueFlags, Device, DeviceCreateInfo, QueueCreateInfo};
-use vulkano::image::ImageUsage;
+use vulkano::image::view::ImageView;
+use vulkano::image::{ImageUsage, SwapchainImage, ImageAccess};
 use vulkano::instance::Instance;
-use vulkano::{VulkanLibrary, format};
+use vulkano::sync::{GpuFuture, FlushError};
+use vulkano::{VulkanLibrary, render_pass, sync};
 use vulkano::memory::allocator::{StandardMemoryAllocator, AllocationCreateInfo, MemoryUsage};
-use vulkano::pipeline::graphics::vertex_input;
-use vulkano::swapchain::Swapchain;
+use vulkano::pipeline::GraphicsPipeline;
+use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
+use vulkano::pipeline::graphics::vertex_input::{self, Vertex};
+use vulkano::pipeline::graphics::viewport::{ViewportState, Viewport};
+use vulkano::render_pass::{Subpass, Framebuffer, RenderPass};
+use vulkano::swapchain::{Swapchain, SwapchainCreateInfo, SwapchainCreationError, acquire_next_image, AcquireError, SwapchainPresentInfo};
 use vulkano_win::VkSurfaceBuild;
-use winit::event_loop::EventLoop;
-use winit::window::{WindowBuilder, self, Window};
+use winit::event::{Event, WindowEvent};
+use winit::event_loop::{EventLoop, ControlFlow};
+use winit::window::{WindowBuilder, Window};
 
-use crate::glm::{self, Vec3};
-use crate::mesh::{self, MeshData, Vertex, MeshDataBuffs};
+use crate::glm::Vec3;
+use crate::mesh::{self, MeshData, MeshDataBuffs};
+use crate::mesh::mtl::Material;
 
 
 
@@ -31,8 +42,8 @@ struct VkVertex {
     tex: [f32; 2],
 }
 
-impl From<Vertex> for VkVertex {
-    fn from(value: Vertex) -> Self {
+impl From<mesh::Vertex> for VkVertex {
+    fn from(value: mesh::Vertex) -> Self {
         Self {
             position: value.pos.into(),
             normal: value.normal.into(),
@@ -184,15 +195,200 @@ pub fn display_model(m: mesh::MeshData) {
     mod vs {
         vulkano_shaders::shader! {
             ty: "vertex",
-            path: "shaders/vert_vk.glsl"
+            path: "shaders/vert_vk.glsl",
+            linalg_type: "nalgebra"
         }
     }
     mod fs {
+        use super::Material;
+
         vulkano_shaders::shader! {
             ty: "fragment",
-            path: "shaders/frag_vk.glsl"
+            path: "shaders/frag_vk.glsl",
+            linalg_type: "nalgebra"
+        }
+
+        // declaration of ShaderMtl from macro parsing of frag_vk.glsl
+        impl From<Material> for ShaderMtl {
+            fn from(value: Material) -> Self {
+                ShaderMtl {
+                    base_diffuse: value.diffuse().into(),
+                    base_ambient: value.ambient().into(),
+                    base_specular: value.specular().into(),
+                    base_specular_factor: value.base_specular_factor().into(),
+                }
+            }
         }
     }
+
+    let vs = vs::load(device.clone()).unwrap();
+    let fs = fs::load(device.clone()).unwrap();
+
+    // now to initialize the pipelines - this is completely foreign to opengl
+    let render_pass = vulkano::single_pass_renderpass!(
+    device.clone(),
+        attachments: {
+            color: {
+                load: Clear,
+                store: Store,
+                format: swapchain.image_format(),
+                samples: 1,
+            },
+        },
+        pass: {
+            color: [color],
+
+            // no depth/stencil attachment for now
+            depth_stencil: {},
+        }
+    ).unwrap();
+
+    let pipeline = GraphicsPipeline::start()
+        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+        .vertex_input_state(VkVertex::per_vertex())
+        // list of triangles - I think this doesn't need to change for idx buf
+        .input_assembly_state(InputAssemblyState::new())
+        // entry point isn't necessarily main
+        .vertex_shader(vs.entry_point("main").unwrap(), ())
+        // resizable window
+        .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+        .fragment_shader(fs.entry_point("main").unwrap(), ())
+        .build(device.clone())
+        .unwrap();
+
+    let mut viewport = Viewport {
+        origin: [0.0, 0.0],
+        dimensions: [0.0, 0.0],
+        depth_range: 0.0..1.0,
+    };
+
+    let mut framebuffers = initialize_based_on_window(&images, render_pass.clone(), &mut viewport);
+
+    let command_buffer_allocator = 
+        StandardCommandBufferAllocator::new(device.clone(), Default::default());
+
+    // initialization done!
+
+    // swapchain can be spuriously invalidated (window resized)
+    let mut recreate_swapchain = false;
+
+    let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
+
+    event_loop.run(move |event, _, control_flow|{
+        match event {
+            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => { *control_flow = ControlFlow::Exit },
+            Event::WindowEvent { event: WindowEvent::Resized(_), .. } => { recreate_swapchain = true },
+            Event::RedrawEventsCleared => {
+                // do not draw if size is zero (eg minimized)
+                let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
+                let dimensions = window.inner_size();
+                if dimensions.width == 0 || dimensions.height == 0 {
+                    return;
+                }
+
+                // will cause a memory leak if not called every once in a while
+                previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+                if recreate_swapchain {
+                    let (new_swapchain, new_images) = match swapchain.recreate(SwapchainCreateInfo {
+                        image_extent: dimensions.into(),
+                        ..swapchain.create_info()
+                    }) {
+                            Ok(r) => r,
+                                // can happen when resizing -> easy way to fix is just restart loop
+                            Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => return,
+                            Err(e) => panic!("Failed to recreate swapchain: {e}"),
+                        };
+
+                    swapchain = new_swapchain;
+
+                    framebuffers = initialize_based_on_window(&new_images, render_pass.clone(), &mut viewport);
+
+                    recreate_swapchain = false;
+                }
+
+                // need to acquire image before drawing, blocks if it's not ready yet (too many
+                // commands), so it has optional timeout
+                let (image_index, suboptimal, acquire_future) = match acquire_next_image(swapchain.clone(), None) {
+                    Ok(r) => r,
+                    Err(AcquireError::OutOfDate) => {
+                        recreate_swapchain = true;
+                        return;
+                    }
+                    Err(e) => panic!("failed to acquire next image: {e}"),
+                };
+
+                // sometimes this just happens, usually it's the user's fault. The image will still
+                // display, just poorly. It may become an out of date error if we don't regen.
+                if suboptimal {
+                    recreate_swapchain = true;
+                }
+
+                let mut builder = AutoCommandBufferBuilder::primary(&command_buffer_allocator, queue.queue_family_index(), CommandBufferUsage::OneTimeSubmit).unwrap();
+
+                // we can not do a render pass if we use dynamic
+                builder.begin_render_pass(RenderPassBeginInfo {
+                    clear_values: vec![Some([0.0, 0.0, 1.0, 1.0].into())],
+                    ..RenderPassBeginInfo::framebuffer(framebuffers[image_index as usize].clone())
+                }, SubpassContents::Inline).unwrap()
+                    .set_viewport(0, [viewport.clone()])
+                    .bind_pipeline_graphics(pipeline.clone())
+                    .bind_vertex_buffers(0, vertex_buffer.clone())
+                    .bind_index_buffer(index_buffer.clone())
+                    .draw(vertex_buffer.len() as u32, 1, 0, 0)
+                    .unwrap()
+                    // additional passes would go here
+                    .end_render_pass()
+                    .unwrap();
+
+                let command_buffer = builder.build().unwrap();
+
+                let future = previous_frame_end
+                .take()
+                    .unwrap()
+                    .join(acquire_future)
+                    .then_execute(queue.clone(), command_buffer)
+                    .unwrap()
+                    .then_swapchain_present(queue.clone(), SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index))
+                    .then_signal_fence_and_flush();
+
+                match future {
+                    Ok(f) => {
+                        previous_frame_end = Some(f.boxed());
+                    },
+                    Err(FlushError::OutOfDate) => {
+                        recreate_swapchain = true;
+                        previous_frame_end = Some(sync::now(device.clone()).boxed());
+                    }
+                    Err(e) => {
+                        panic!("Failed to flush future {e}");
+                    }
+                }
+            }
+            _ => (),
+        }
+    });
+}
+
+fn initialize_based_on_window(
+    images: &[Arc<SwapchainImage>],
+    render_pass: Arc<RenderPass>,
+    viewport: &mut Viewport
+) -> Vec<Arc<Framebuffer>> {
+    let dimensions = images[0].dimensions().width_height();
+    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+
+    images.iter()
+    .map(|image| {
+            let view = ImageView::new_default(image.clone()).unwrap();
+            Framebuffer::new(
+                render_pass.clone(),
+                render_pass::FramebufferCreateInfo {
+                    attachments: vec![view],
+                    ..Default::default()
+                }
+            ).unwrap()
+        }).collect::<Vec<_>>()
 }
 
 pub fn depth_screenshots(_m: MeshData, _dim: (u32, u32), _pos: &[Vec3]) -> Vec<String> {
