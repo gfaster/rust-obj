@@ -3,6 +3,12 @@
 ## Usage:
 run with the path to an .obj file as the first argument (defaults to Stanford Bunny)
 
+you probably need a few packages as well:
+- opengl?
+- mesa?
+- shaderc? (this one tends to blow up hard on my Debian 12 install - try removing it, it'll be slower but not break)
+- gcc?
+
 ## Keybinds:
 - Q: exit
 - W: draw as wireframe

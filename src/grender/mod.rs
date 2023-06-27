@@ -1,17 +1,18 @@
+extern crate glium;
+
 use std::fs;
 use std::ops::Deref;
-use std::thread;
 use std::time;
 
 use crate::mesh;
 use crate::mesh::mat::Material;
 use crate::mesh::GlVertex;
 use crate::mesh::MeshData;
-use glium::backend::Facade;
 use glium::glutin::error::ExternalError;
 use glium::glutin::platform::unix::HeadlessContextExt;
 use glium::texture::ClientFormat;
 use glium::texture::RawImage2d;
+use glium::CapabilitiesSource;
 use glium::{
     glutin::{self, event::ElementState, window::CursorGrabMode},
     implement_vertex,
@@ -77,6 +78,7 @@ pub fn display_model(m: mesh::MeshData) {
     let wb = glutin::window::WindowBuilder::new();
     let cb = glutin::ContextBuilder::new().with_depth_buffer(24);
     let display = glium::Display::new(wb, cb, &event_loop).unwrap();
+    dbg!(display.get_capabilities());
 
     let material = m.material().clone();
 
@@ -284,12 +286,15 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     let mut out: Vec<String> = Vec::with_capacity(pos.len());
 
     let ctx = glutin::ContextBuilder::new()
-        .with_depth_buffer(24)
-        .with_stencil_buffer(8)
-        .build_osmesa((dim.0, dim.1).into())
+        .with_gl(glutin::GlRequest::Latest)
+        .with_gl_profile(glutin::GlProfile::Core)
+        .build_osmesa(dim.into())
         .unwrap();
     let facade = glium::backend::glutin::headless::Headless::new(ctx).unwrap();
 
+    dbg!(facade.get_capabilities());
+    dbg!(facade.get_opengl_version());
+    dbg!(facade.get_opengl_profile());
     dbg!(facade.get_framebuffer_dimensions());
 
     let vertex_shader =
@@ -309,9 +314,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     .unwrap();
 
     if m.normalize_factor() == 0.0 {
-        panic!(
-            "model has a normalization factor of zero - there are no vertices"
-        );
+        panic!("model has a normalization factor of zero - there are no vertices");
     }
     let scale: f32 = 1.5 / dbg!(m.normalize_factor());
 
@@ -341,7 +344,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         [-center.x, -center.y, -center.z, 1.0],
     ]);
 
-    // eprintln!("{:.2}", transform); 
+    // eprintln!("{:.2}", transform);
     let model_normal_matrix = glm::transpose(&glm::inverse(&glm::mat4_to_mat3(&transform)));
 
     for _v in &buffers.verts {
@@ -385,7 +388,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         let view = camera.get_transform();
         let modelview = view * transform;
 
-        let uniforms = uniform! { 
+        let uniforms = uniform! {
             cam_transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&view),
             modelview: *AsRef::<[[f32; 4]; 4]>::as_ref(&modelview),
             transform: *AsRef::<[[f32; 4]; 4]>::as_ref(&transform),
@@ -402,12 +405,13 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         let mut target = facade.draw();
         // target.clear_color_and_depth(mode.clear_color(), 1.0);
         target.clear_all(mode.clear_color(), 1.0, 0xFF);
+        dbg!(target.has_depth_buffer());
         target
             .draw(&vbuffer, &ibuffer, &program, &uniforms, &params)
             .unwrap();
         target.finish().unwrap();
         let img = capture_screen(&facade).unwrap();
-        
+
         let path = "/home/gfaster/Pictures/rust_obj/tmp.png";
         img.save(path).unwrap();
         out.push(path.into());
@@ -503,7 +507,9 @@ fn screenshot_dir() -> Result<String, Box<dyn std::error::Error>> {
     Ok(base_path)
 }
 
-fn capture_screen(surface: &impl Deref<Target = glium::backend::Context>) -> Result<image::RgbaImage, Box<dyn std::error::Error>> {
+fn capture_screen(
+    surface: &impl Deref<Target = glium::backend::Context>,
+) -> Result<image::RgbaImage, Box<dyn std::error::Error>> {
     let dim = dbg!(surface.get_framebuffer_dimensions());
     let raw_img = surface.read_front_buffer::<RawImage2d<u8>>()?;
     assert!(

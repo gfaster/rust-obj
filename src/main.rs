@@ -1,14 +1,24 @@
 #![allow(dead_code)]
+#![warn(clippy::all)]
 #![doc = include_str!("../README.md")]
 
-extern crate glium;
 extern crate nalgebra_glm as glm;
 
 mod depth_classify;
 mod error;
-mod grender;
 mod mesh;
 mod wavefrontobj;
+mod controls;
+
+#[cfg(feature = "glium")]
+mod grender;
+#[cfg(feature = "glium")]
+use grender as renderer;
+
+#[cfg(feature = "vulkano")]
+mod vkrender;
+#[cfg(feature = "vulkano")]
+use vkrender as renderer;
 
 fn main() {
     let input = std::env::args()
@@ -17,5 +27,12 @@ fn main() {
 
     let obj = wavefrontobj::load(input).expect("pass a valid file path");
     // dbg!(obj.tris().collect::<Vec<_>>());
-    grender::display_model(obj);
+    renderer::display_model(obj);
+
+    // for some reason, we only get 800x600, and anything else will just get weird cropping
+    // dbg!(renderer::depth_screenshots(
+    //     obj,
+    //     (800, 600),
+    //     &[glm::vec3(3.0, 0.0, 0.0)]
+    // ));
 }

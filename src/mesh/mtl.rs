@@ -2,6 +2,7 @@ use std::{
     error::Error,
     io::{BufRead, BufReader},
     path::Path,
+    sync::Arc,
 };
 
 use image::RgbaImage;
@@ -16,9 +17,9 @@ pub struct Material {
     specular: ColorFloat,
     spec_exp: f32,
 
-    ambient_map: Option<RgbaImage>,
-    diffuse_map: Option<RgbaImage>,
-    normal_map: Option<RgbaImage>,
+    ambient_map: Option<Arc<RgbaImage>>,
+    diffuse_map: Option<Arc<RgbaImage>>,
+    normal_map: Option<Arc<RgbaImage>>,
     // specular_map: Option<RgbaImage>,
 }
 
@@ -44,7 +45,7 @@ impl Material {
             ambient: [0.05, 0.05, 0.05].into(),
             specular: [0.0, 0.0, 0.0].into(),
             ambient_map: Default::default(),
-            diffuse_map: Some(Material::dev_texture()),
+            diffuse_map: Some(Material::dev_texture().into()),
             normal_map: Default::default(),
             spec_exp: 1.0,
         }
@@ -75,12 +76,12 @@ impl Material {
         self.name.as_ref()
     }
 
-    pub fn diffuse_map(&self) -> Option<&RgbaImage> {
-        self.diffuse_map.as_ref()
+    pub fn diffuse_map(&self) -> Option<Arc<RgbaImage>> {
+        self.diffuse_map.clone()
     }
 
-    pub fn normal_map(&self) -> Option<&RgbaImage> {
-        self.normal_map.as_ref()
+    pub fn normal_map(&self) -> Option<Arc<RgbaImage>> {
+        self.normal_map.clone()
     }
 
     pub fn specular_map(&self) -> Option<&RgbaImage> {
@@ -132,13 +133,13 @@ impl Material {
                 }
                 ["Ns", factor] => ret.spec_exp = factor.parse()?,
                 ["map_Ka", map_file] => {
-                    ret.ambient_map = Some(read_map(path.as_ref().with_file_name(map_file))?)
+                    ret.ambient_map = Some(read_map(path.as_ref().with_file_name(map_file))?.into())
                 }
                 ["map_Kd", map_file] => {
-                    ret.diffuse_map = Some(read_map(path.as_ref().with_file_name(map_file))?)
+                    ret.diffuse_map = Some(read_map(path.as_ref().with_file_name(map_file))?.into())
                 }
                 ["bump", map_file] | ["map_Bump", map_file] => {
-                    ret.normal_map = Some(read_map(path.as_ref().with_file_name(map_file))?)
+                    ret.normal_map = Some(read_map(path.as_ref().with_file_name(map_file))?.into())
                 }
                 ["map_Ks", _map_file] => (),
                 ["illum", _illium] => (),
