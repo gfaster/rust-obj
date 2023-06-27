@@ -98,6 +98,12 @@ pub struct MeshData {
     running_volume: f32,
 }
 
+pub struct MeshMeta {
+    centroid: Vec3,
+    normalize_factor: f32,
+    material: Material
+}
+
 #[derive(Debug)]
 pub enum MeshError {
     VertexPositionIndexInvalid { tried: u32, max: u32 },
@@ -127,6 +133,26 @@ impl MeshData {
 
             running_center: Vec3::from([0.0, 0.0, 0.0]),
             running_volume: 0.0,
+        }
+    }
+
+    /// makes a copy of the mesh metadata so the original can be converted to databuffs
+    /// non-destructively
+    pub fn get_meta(&self) -> MeshMeta {
+        MeshMeta {
+            centroid: self.centroid(),
+            normalize_factor: self.normalize_factor(),
+            material: self.material.clone(),
+        }
+    }
+
+    /// extracts the metadata of the mesh, but takes ownership of material, replacing it with a
+    /// default material. This should be more performant as it reduces copying
+    pub fn extract_meta(&mut self) -> MeshMeta {
+        MeshMeta {
+            centroid: self.centroid(),
+            normalize_factor: self.normalize_factor(),
+            material: std::mem::take(&mut self.material),
         }
     }
 
