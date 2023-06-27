@@ -1,24 +1,30 @@
 use std::sync::Arc;
 
+use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
 };
+use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
+use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::physical::PhysicalDeviceType;
-use vulkano::device::{Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo, QueueFlags};
+use vulkano::device::{Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo, QueueFlags, DeviceOwned};
+use vulkano::format::Format;
 use vulkano::image::view::ImageView;
-use vulkano::image::{ImageAccess, ImageUsage, SwapchainImage};
+use vulkano::image::{ImageAccess, ImageUsage, SwapchainImage, AttachmentImage};
 use vulkano::instance::Instance;
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
+use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
 use vulkano::pipeline::graphics::vertex_input::{self, Vertex};
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
-use vulkano::pipeline::GraphicsPipeline;
+use vulkano::pipeline::{GraphicsPipeline, PipelineBindPoint, Pipeline};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
+use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{
     acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
-    SwapchainPresentInfo,
+    SwapchainPresentInfo, Surface,
 };
 use vulkano::sync::{FlushError, GpuFuture};
 use vulkano::{render_pass, sync, VulkanLibrary};
@@ -27,9 +33,22 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
+use crate::controls::Camera;
 use crate::glm::Vec3;
 use crate::mesh::mtl::Material;
-use crate::mesh::{self, MeshData, MeshDataBuffs};
+use crate::mesh::{self, MeshData, MeshDataBuffs, MeshMeta};
+
+pub mod consts {
+    use nalgebra::ArrayStorage;
+    pub const FORWARD: glm::Vec3 =
+        glm::Vec3::from_array_storage(ArrayStorage([[0.0, 0.0, -1.0f32]]));
+    pub const BACKWARD: glm::Vec3 =
+        glm::Vec3::from_array_storage(ArrayStorage([[0.0, 0.0, 1.0f32]]));
+    pub const UP: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, 1.0, 0.0f32]]));
+    pub const DOWN: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[0.0, -1.0, 0.0f32]]));
+    pub const RIGHT: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[1.0, 0.0, 0.0f32]]));
+    pub const LEFT: glm::Vec3 = glm::Vec3::from_array_storage(ArrayStorage([[-1.0, 0.0, 0.0f32]]));
+}
 
 // format attributes use [`vulkano::format::Format`] enum fields
 #[derive(BufferContents, vertex_input::Vertex)]
@@ -72,6 +91,8 @@ pub fn display_model(m: mesh::MeshData) {
     .unwrap();
 
     let event_loop = EventLoop::new();
+
+    let mut cam = Camera::new();
 
     // instance maybe needs to be cloned?
     let surface = WindowBuilder::new()
@@ -172,10 +193,10 @@ pub fn display_model(m: mesh::MeshData) {
         .unwrap()
     };
 
-    let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
+    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
     // setup done - now to mesh
-
+    let mesh_meta = m.get_meta();
     let MeshDataBuffs {
         verts: vertices,
         indices,
@@ -208,35 +229,14 @@ pub fn display_model(m: mesh::MeshData) {
     )
     .unwrap();
 
-    // supposedly we could do shaders at compile time - but there is a whole mess
-    mod vs {
-        vulkano_shaders::shader! {
-            ty: "vertex",
-            path: "shaders/vert_vk.glsl",
-            linalg_type: "nalgebra"
-        }
-    }
-    mod fs {
-        use super::Material;
 
-        vulkano_shaders::shader! {
-            ty: "fragment",
-            path: "shaders/frag_vk.glsl",
-            linalg_type: "nalgebra"
+    let uniform_buffer = SubbufferAllocator::new(
+        memory_allocator.clone(),
+        SubbufferAllocatorCreateInfo {
+            buffer_usage: BufferUsage::UNIFORM_BUFFER,
+            ..Default::default()
         }
-
-        // declaration of ShaderMtl from macro parsing of frag_vk.glsl
-        impl From<Material> for ShaderMtl {
-            fn from(value: Material) -> Self {
-                ShaderMtl {
-                    base_diffuse: value.diffuse().into(),
-                    base_ambient: value.ambient().into(),
-                    base_specular: value.specular().into(),
-                    base_specular_factor: value.base_specular_factor().into(),
-                }
-            }
-        }
-    }
+    );
 
     let vs = vs::load(device.clone()).unwrap();
     let fs = fs::load(device.clone()).unwrap();
@@ -251,28 +251,22 @@ pub fn display_model(m: mesh::MeshData) {
                 format: swapchain.image_format(),
                 samples: 1,
             },
+
+            depth: {
+                load: Clear,
+                store: DontCare,
+                format: vulkano::format::Format::D16_UNORM,
+                samples: 1
+            }
         },
         pass: {
             color: [color],
 
-            // no depth/stencil attachment for now
-            depth_stencil: {},
+            depth_stencil: {depth},
         }
     )
     .unwrap();
 
-    let pipeline = GraphicsPipeline::start()
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-        .vertex_input_state(VkVertex::per_vertex())
-        // list of triangles - I think this doesn't need to change for idx buf
-        .input_assembly_state(InputAssemblyState::new())
-        // entry point isn't necessarily main
-        .vertex_shader(vs.entry_point("main").unwrap(), ())
-        // resizable window
-        .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-        .fragment_shader(fs.entry_point("main").unwrap(), ())
-        .build(device.clone())
-        .unwrap();
 
     let mut viewport = Viewport {
         origin: [0.0, 0.0],
@@ -280,8 +274,9 @@ pub fn display_model(m: mesh::MeshData) {
         depth_range: 0.0..1.0,
     };
 
-    let mut framebuffers = initialize_based_on_window(&images, render_pass.clone(), &mut viewport);
+    let (mut pipeline, mut framebuffers) = initialize_based_on_window(&memory_allocator, &images, &vs, &fs, render_pass.clone(), &mut viewport);
 
+    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
     let command_buffer_allocator =
         StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
@@ -327,11 +322,41 @@ pub fn display_model(m: mesh::MeshData) {
 
                     swapchain = new_swapchain;
 
-                    framebuffers =
-                        initialize_based_on_window(&new_images, render_pass.clone(), &mut viewport);
-
+                    let (new_pipeline, new_framebuffers) =
+                        initialize_based_on_window(&memory_allocator, &new_images, &vs, &fs, render_pass.clone(), &mut viewport);
+                    pipeline = new_pipeline;
+                    framebuffers = new_framebuffers;
                     recreate_swapchain = false;
                 }
+
+                let aspect = viewport.dimensions[0] / viewport.dimensions[1];
+                let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
+                let layout = pipeline.layout().set_layouts().get(0).unwrap();
+
+                let cam_subbuffer = uniform_buffer.allocate_sized().unwrap();
+                *cam_subbuffer.write().unwrap() = s_cam;
+
+                let mat_subbuffer = uniform_buffer.allocate_sized().unwrap();
+                *mat_subbuffer.write().unwrap() = s_mat;
+
+                let mtl_subbuffer = uniform_buffer.allocate_sized().unwrap();
+                *mtl_subbuffer.write().unwrap() = s_mtl;
+
+                let light_subbuffer = uniform_buffer.allocate_sized().unwrap();
+                *light_subbuffer.write().unwrap() = s_light;
+
+                let set = PersistentDescriptorSet::new(
+                    &descriptor_set_allocator,
+                    layout.clone(),
+                    [
+                        WriteDescriptorSet::buffer(vs::CAM_BINDING, cam_subbuffer),
+                        WriteDescriptorSet::buffer(vs::MAT_BINDING, mat_subbuffer),
+                        WriteDescriptorSet::buffer(fs::MTL_BINDING, mtl_subbuffer),
+                        WriteDescriptorSet::buffer(fs::LIGHT_BINDING, light_subbuffer),
+                    ]
+                ).unwrap();
+
+
 
                 // need to acquire image before drawing, blocks if it's not ready yet (too many
                 // commands), so it has optional timeout
@@ -362,7 +387,7 @@ pub fn display_model(m: mesh::MeshData) {
                 builder
                     .begin_render_pass(
                         RenderPassBeginInfo {
-                            clear_values: vec![Some([0.0, 0.0, 1.0, 1.0].into())],
+                            clear_values: vec![Some([0.0, 0.0, 1.0, 1.0].into()), Some(1.0.into())],
                             ..RenderPassBeginInfo::framebuffer(
                                 framebuffers[image_index as usize].clone(),
                             )
@@ -372,9 +397,13 @@ pub fn display_model(m: mesh::MeshData) {
                     .unwrap()
                     .set_viewport(0, [viewport.clone()])
                     .bind_pipeline_graphics(pipeline.clone())
+                    .bind_descriptor_sets(PipelineBindPoint::Graphics,
+                        pipeline.layout().clone(),
+                        0,
+                        set)
                     .bind_vertex_buffers(0, vertex_buffer.clone())
                     .bind_index_buffer(index_buffer.clone())
-                    .draw(vertex_buffer.len() as u32, 1, 0, 0)
+                    .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
                     .unwrap()
                     // additional passes would go here
                     .end_render_pass()
@@ -411,29 +440,146 @@ pub fn display_model(m: mesh::MeshData) {
         }
     });
 }
+mod vs {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "shaders/vert_vk.glsl",
+        linalg_type: "nalgebra"
+    }
+
+    pub const MAT_BINDING: u32 = 0;
+    pub const CAM_BINDING: u32 = 1;
+}
+mod fs {
+    use super::Material;
+
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        path: "shaders/frag_vk.glsl",
+        linalg_type: "nalgebra"
+    }
+
+    pub const MTL_BINDING: u32 = 2;
+    pub const LIGHT_BINDING: u32 = 3;
+
+    // declaration of ShaderMtl from macro parsing of frag_vk.glsl
+    impl From<Material> for ShaderMtl {
+        fn from(value: Material) -> Self {
+            ShaderMtl {
+                base_diffuse: value.diffuse().into(),
+                base_ambient: value.ambient().into(),
+                base_specular: value.specular().into(),
+                base_specular_factor: value.base_specular_factor().into(),
+            }
+        }
+    }
+}
+
+fn generate_uniforms(meta: &MeshMeta, cam: &Camera, aspect: f32) -> (vs::ShaderCamAttr, vs::ShaderMatBuffer, fs::ShaderMtl, fs::ShaderLight) {
+
+
+    let near = 1.0;
+    let far = 4.0;
+    let scale = 1.5 / meta.normalize_factor;
+    let center = meta.centroid;
+    let projection_matrix = glm::perspective(
+        aspect,
+        1.0,
+        near,
+        far
+    );
+    let transform = glm::Mat4::from([
+        [scale, 0.0, 0.0, 0.0],
+        [0.0, scale, 0.0, 0.0],
+        [0.0, 0.0, scale, 0.0],
+        [0.0, 0.0, 0.0, 1.0f32],
+    ]) * glm::Mat4::from([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [-center.x, -center.y, -center.z, 1.0],
+    ]);
+
+    let modelview = cam.get_transform() * transform;
+
+    let normal_matrix = glm::transpose(&glm::inverse(&transform));
+
+    let cam_attr = vs::ShaderCamAttr {
+        near,
+        far,
+    };
+
+    let mat = vs::ShaderMatBuffer {
+        transform,
+        modelview,
+        projection_matrix,
+        normal_matrix,
+    };
+
+    let mtl = meta.material.clone().into();
+
+    let light = fs::ShaderLight {
+        light_pos: cam.pos,
+    };
+
+    (cam_attr, mat, mtl, light)
+}
+
 
 fn initialize_based_on_window(
+    memory_allocator: &StandardMemoryAllocator,
     images: &[Arc<SwapchainImage>],
+    vs: &ShaderModule,
+    fs: &ShaderModule,
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
-) -> Vec<Arc<Framebuffer>> {
+) -> (Arc<GraphicsPipeline>, Vec<Arc<Framebuffer>>) {
     let dimensions = images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
 
-    images
+    let depth_buffer = ImageView::new_default(
+        AttachmentImage::transient(memory_allocator, dimensions, Format::D16_UNORM).unwrap()
+    ).unwrap();
+
+
+
+    let pipeline = GraphicsPipeline::start()
+        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+        .vertex_input_state(VkVertex::per_vertex())
+        // list of triangles - I think this doesn't need to change for idx buf
+        .input_assembly_state(InputAssemblyState::new())
+        // entry point isn't necessarily main
+        .vertex_shader(vs.entry_point("main").unwrap(), ())
+        .fragment_shader(fs.entry_point("main").unwrap(), ())
+        // resizable window
+        .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+            Viewport {
+                origin: [0.0, 0.0],
+                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+                depth_range: 0.0..1.0,
+            }
+        ]))
+        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+        .depth_stencil_state(DepthStencilState::simple_depth_test())
+        .build(memory_allocator.device().clone())
+        .unwrap();
+
+    let framebuffers = images
         .iter()
         .map(|image| {
             let view = ImageView::new_default(image.clone()).unwrap();
             Framebuffer::new(
                 render_pass.clone(),
                 render_pass::FramebufferCreateInfo {
-                    attachments: vec![view],
+                    attachments: vec![view, depth_buffer.clone()],
                     ..Default::default()
                 },
             )
             .unwrap()
         })
-        .collect::<Vec<_>>()
+        .collect::<Vec<_>>();
+
+    (pipeline, framebuffers)
 }
 
 pub fn depth_screenshots(_m: MeshData, _dim: (u32, u32), _pos: &[Vec3]) -> Vec<String> {

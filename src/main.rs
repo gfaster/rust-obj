@@ -8,6 +8,7 @@ mod depth_classify;
 mod error;
 mod mesh;
 mod wavefrontobj;
+mod controls;
 
 #[cfg(feature = "glium")]
 mod grender;

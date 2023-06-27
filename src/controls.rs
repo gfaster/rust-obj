@@ -1,6 +1,6 @@
 use crate::glm;
 
-use super::consts::*;
+use crate::renderer::consts::*;
 use glm::{Mat4, Vec2, Vec3};
 
 pub struct Camera {

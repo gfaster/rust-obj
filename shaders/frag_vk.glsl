@@ -8,7 +8,7 @@ layout(location = 2) in vec2 v_texCoord;
 layout(location = 3) in float v_depth;
 
 // rust structs are generated from this strut name
-layout(set = 1, binding = 0) uniform ShaderMtl {
+layout(set = 0, binding = 2) uniform ShaderMtl {
     vec4 base_diffuse;
     vec4 base_ambient;
     vec4 base_specular;
@@ -16,7 +16,7 @@ layout(set = 1, binding = 0) uniform ShaderMtl {
 } Mtl;
 
 // rust structs are generated from this struct name
-layout(set = 2, binding = 0) uniform ShaderLight {
+layout(set = 0, binding = 3) uniform ShaderLight {
     vec3 light_pos;
 } Light;
 
