@@ -101,7 +101,7 @@ pub struct MeshData {
 pub struct MeshMeta {
     pub centroid: Vec3,
     pub normalize_factor: f32,
-    pub material: Material
+    pub material: Material,
 }
 
 #[derive(Debug)]

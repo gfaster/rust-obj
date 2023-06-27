@@ -4,11 +4,11 @@
 
 extern crate nalgebra_glm as glm;
 
+mod controls;
 mod depth_classify;
 mod error;
 mod mesh;
 mod wavefrontobj;
-mod controls;
 
 #[cfg(feature = "glium")]
 mod grender;

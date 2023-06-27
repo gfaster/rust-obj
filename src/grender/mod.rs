@@ -23,9 +23,7 @@ use glium::{
 use image::GrayImage;
 use nalgebra_glm::Vec3;
 
-use self::controls::Camera;
-
-mod controls;
+use crate::controls::Camera;
 
 pub mod consts {
     use nalgebra::ArrayStorage;
