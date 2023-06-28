@@ -1,12 +1,13 @@
 [package]
 name = "obj"
 version = "0.1.1"
-authors = ["gfaster"]
+authors = ["gfaster", "cubostar"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+fft2d = "0.1.1"
 glium = "*"
 image = "0.24.6"
 nalgebra = "0.32.2"
