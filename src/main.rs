@@ -20,7 +20,6 @@ mod vkrender;
 #[cfg(feature = "vulkano")]
 use vkrender as renderer;
 
-
 fn main() {
     let input = std::env::args()
         .nth(1)
@@ -35,15 +34,12 @@ fn main() {
 
 fn screenshots(obj: mesh::MeshData) {
     let paths = renderer::depth_screenshots(
-        obj, 
-        (512, 512), 
-        &[
-            glm::vec3(3.0, 0.0, 0.0),
-            glm::vec3(1.0, 3.0, 0.0),
-        ]
+        obj,
+        (512, 512),
+        &[glm::vec3(3.0, 0.0, 0.0), glm::vec3(1.0, 3.0, 0.0)],
     );
     for path in paths {
         print!("{} ", path);
     }
-    println!("");
+    println!();
 }

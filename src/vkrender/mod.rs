@@ -57,7 +57,7 @@ pub mod consts {
 // format attributes use [`vulkano::format::Format`] enum fields
 #[derive(BufferContents, vertex_input::Vertex)]
 #[repr(C)]
-struct VkVertex {
+pub struct VkVertex {
     #[format(R32G32B32_SFLOAT)]
     position: [f32; 3],
 
@@ -472,7 +472,7 @@ pub fn display_model(m: mesh::MeshData) {
         }
     });
 }
-mod vs {
+pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
         path: "shaders/vert_vk.glsl",
@@ -483,7 +483,7 @@ mod vs {
     pub const MAT_BINDING: u32 = 0;
     pub const CAM_BINDING: u32 = 1;
 }
-mod fs {
+pub mod fs {
     use super::Material;
 
     vulkano_shaders::shader! {
@@ -503,13 +503,13 @@ mod fs {
                 base_diffuse: value.diffuse().into(),
                 base_ambient: value.ambient().into(),
                 base_specular: value.specular().into(),
-                base_specular_factor: value.base_specular_factor().into(),
+                base_specular_factor: value.base_specular_factor(),
             }
         }
     }
 }
 
-fn generate_uniforms(
+pub fn generate_uniforms(
     meta: &MeshMeta,
     cam: &Camera,
     aspect: f32,
@@ -818,9 +818,9 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         let framebuffer = {
             let view = ImageView::new_default(image.clone()).unwrap();
             Framebuffer::new(
-                render_pass.clone(),
+                render_pass,
                 render_pass::FramebufferCreateInfo {
-                    attachments: vec![view, depth_buffer.clone()],
+                    attachments: vec![view, depth_buffer],
                     ..Default::default()
                 },
             )
@@ -934,7 +934,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     ret
 }
 
-fn screenshot_dir() -> Result<String, Box<dyn std::error::Error>> {
+pub fn screenshot_dir() -> Result<String, Box<dyn std::error::Error>> {
     let dir_path = format!("{}/Pictures/rust_obj", std::env::var("HOME")?);
     let base_path = format!(
         "{}/Pictures/rust_obj/{}",
