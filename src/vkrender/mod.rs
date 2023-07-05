@@ -25,17 +25,17 @@ use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{
-    acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
-    SwapchainCreationError, SwapchainPresentInfo,
+    acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
+    SwapchainPresentInfo,
 };
 use vulkano::sync::{FlushError, GpuFuture};
 use vulkano::{render_pass, sync, VulkanLibrary};
 use vulkano_win::VkSurfaceBuild;
-use winit::event::{Event, WindowEvent};
+use winit::event::{DeviceEvent, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
-use crate::controls::Camera;
+use crate::controls::{mouse_move, Camera};
 use crate::glm::Vec3;
 use crate::mesh::mtl::Material;
 use crate::mesh::{self, MeshData, MeshDataBuffs, MeshMeta};
@@ -300,10 +300,24 @@ pub fn display_model(m: mesh::MeshData) {
                 event: WindowEvent::CloseRequested,
                 ..
             } => *control_flow = ControlFlow::Exit,
+            Event::DeviceEvent {
+                event:
+                    DeviceEvent::Key(KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::Q),
+                        ..
+                    }),
+                ..
+            } => *control_flow = ControlFlow::Exit,
             Event::WindowEvent {
                 event: WindowEvent::Resized(_),
                 ..
             } => recreate_swapchain = true,
+            Event::DeviceEvent {
+                event: DeviceEvent::MouseMotion { delta },
+                ..
+            } => {
+                mouse_move(&mut cam, &delta);
+            }
             Event::RedrawEventsCleared => {
                 // do not draw if size is zero (eg minimized)
                 let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
@@ -346,27 +360,29 @@ pub fn display_model(m: mesh::MeshData) {
                 let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
                 let layout = pipeline.layout().set_layouts().get(0).unwrap();
 
-                let cam_subbuffer = uniform_buffer.allocate_sized().unwrap();
-                *cam_subbuffer.write().unwrap() = s_cam;
-
-                let mat_subbuffer = uniform_buffer.allocate_sized().unwrap();
-                *mat_subbuffer.write().unwrap() = s_mat;
-
-                let mtl_subbuffer = uniform_buffer.allocate_sized().unwrap();
-                *mtl_subbuffer.write().unwrap() = s_mtl;
-
-                let light_subbuffer = uniform_buffer.allocate_sized().unwrap();
-                *light_subbuffer.write().unwrap() = s_light;
+                macro_rules! gen_write_descriptors {
+                    ($uniform:ident, $(($data:expr, $binding:expr)),*) => {
+                        [
+                            $( {
+                                let subbuffer = $uniform.allocate_sized().unwrap();
+                                *subbuffer.write().unwrap() = $data;
+                                WriteDescriptorSet::buffer(
+                                    $binding, subbuffer)
+                            }, )*
+                        ]
+                    };
+                }
 
                 let set = PersistentDescriptorSet::new(
                     &descriptor_set_allocator,
                     layout.clone(),
-                    [
-                        WriteDescriptorSet::buffer(vs::CAM_BINDING, cam_subbuffer),
-                        WriteDescriptorSet::buffer(vs::MAT_BINDING, mat_subbuffer),
-                        WriteDescriptorSet::buffer(fs::MTL_BINDING, mtl_subbuffer),
-                        WriteDescriptorSet::buffer(fs::LIGHT_BINDING, light_subbuffer),
-                    ],
+                    gen_write_descriptors!(
+                        uniform_buffer,
+                        (s_cam, vs::CAM_BINDING),
+                        (s_mat, vs::MAT_BINDING),
+                        (s_mtl, fs::MTL_BINDING),
+                        (s_light, fs::LIGHT_BINDING)
+                    ),
                 )
                 .unwrap();
 
@@ -395,7 +411,7 @@ pub fn display_model(m: mesh::MeshData) {
                 )
                 .unwrap();
 
-                // we can not do a render pass if we use dynamic
+                // we are allowed to not do a render pass if we use dynamic
                 builder
                     .begin_render_pass(
                         RenderPassBeginInfo {
@@ -458,7 +474,7 @@ mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
         path: "shaders/vert_vk.glsl",
-        linalg_type: "nalgebra"
+        linalg_type: "nalgebra",
     }
 
     pub const MAT_BINDING: u32 = 0;
@@ -510,10 +526,10 @@ fn generate_uniforms(
         [0.0, 0.0, scale, 0.0],
         [0.0, 0.0, 0.0, 1.0f32],
     ]) * glm::Mat4::from([
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [-center.x, -center.y, -center.z, 1.0],
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, -1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0, 0.0],
+        [center.x, center.y, center.z, 1.0],
     ]);
 
     let modelview = cam.get_transform() * transform;

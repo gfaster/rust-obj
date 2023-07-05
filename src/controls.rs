@@ -51,7 +51,7 @@ impl Default for Camera {
     }
 }
 
-pub fn mouse_move(cam: &mut Camera, delta: &(f32, f32)) {
-    let vdelta: Vec2 = Into::<Vec2>::into([delta.1, delta.0]) * 0.005;
+pub fn mouse_move(cam: &mut Camera, delta: &(f64, f64)) {
+    let vdelta: Vec2 = Into::<Vec2>::into([-delta.0 as f32, delta.1 as f32]) * 0.005;
     cam.orbit_target(&vdelta);
 }
