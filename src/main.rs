@@ -27,7 +27,8 @@ fn main() {
 
     let obj = wavefrontobj::load(input).expect("pass a valid file path");
     // dbg!(obj.tris().collect::<Vec<_>>());
-    renderer::display_model(obj);
+    // renderer::display_model(obj);
+    renderer::depth_screenshots(obj, (128, 128), &[glm::vec3(3.0, 0.0, 0.0)]);
 
     // for some reason, we only get 800x600, and anything else will just get weird cropping
     // dbg!(renderer::depth_screenshots(
