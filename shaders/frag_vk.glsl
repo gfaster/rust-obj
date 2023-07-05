@@ -20,13 +20,8 @@ layout(set = 0, binding = 3) uniform ShaderLight {
     vec3 light_pos;
 } Light;
 
-// subroutine(shading_routine_t) vec4 depth_buffer() {
-//     float depth = v_depth * gl_FragCoord.w;
-//     return vec4(vec3(depth), 1.0f);
-// }
 
-void main()
-{
+vec4 diffuse() {
     vec3 base_color = Mtl.base_diffuse.xyz;
 
     vec3 norm = normalize(v_fragNorm);
@@ -39,5 +34,18 @@ void main()
     vec3 diff_color = diff * base_color;
     vec3 spec_color = pow(spec, Mtl.base_specular_factor) * Mtl.base_specular.rgb;
 
-    FragColor = vec4(diff_color + spec_color + Mtl.base_ambient.rgb, 1.0f); 
+    return vec4(diff_color + spec_color + Mtl.base_ambient.rgb, 1.0f); 
+}
+
+vec4 depth_buffer() {
+    float depth = v_depth * gl_FragCoord.w;
+    // float depth = 0.5;
+    return vec4(vec3(depth), 1.0f);
+}
+
+
+void main()
+{
+    FragColor = diffuse();
+    FragColor = depth_buffer();
 }

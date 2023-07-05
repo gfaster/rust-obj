@@ -20,6 +20,7 @@ mod vkrender;
 #[cfg(feature = "vulkano")]
 use vkrender as renderer;
 
+
 fn main() {
     let input = std::env::args()
         .nth(1)
@@ -27,7 +28,12 @@ fn main() {
 
     let obj = wavefrontobj::load(input).expect("pass a valid file path");
     // dbg!(obj.tris().collect::<Vec<_>>());
-    // renderer::display_model(obj);
+
+    renderer::display_model(obj);
+    // screenshots(obj);
+}
+
+fn screenshots(obj: mesh::MeshData) {
     let paths = renderer::depth_screenshots(
         obj, 
         (512, 512), 
@@ -40,11 +46,4 @@ fn main() {
         print!("{} ", path);
     }
     println!("");
-
-    // for some reason, we only get 800x600, and anything else will just get weird cropping
-    // dbg!(renderer::depth_screenshots(
-    //     obj,
-    //     (800, 600),
-    //     &[glm::vec3(3.0, 0.0, 0.0)]
-    // ));
 }
