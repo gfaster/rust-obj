@@ -1,6 +1,6 @@
-use std::path::Path;
 use std::sync::Arc;
 
+use image::Rgba32FImage;
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
@@ -684,7 +684,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     // only have one queue, so we just use that
     let queue = queues.next().unwrap();
 
-    let image_format = Format::R8G8B8A8_UNORM;
+    let image_format = Format::R32G32B32A32_SFLOAT;
 
     let image = StorageImage::new(
         &memory_allocator,
@@ -742,7 +742,10 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
             usage: MemoryUsage::Upload,
             ..Default::default()
         },
-        (0..dim.0 * dim.1 * image_format.block_size().unwrap() as u32).map(|_| 0u8),
+        (0..dim.0
+            * dim.1
+            * (image_format.block_size().unwrap() / std::mem::size_of::<f32>() as u64) as u32)
+            .map(|_| 0f32),
     )
     .unwrap();
 
@@ -832,7 +835,10 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
 
     // initialization done!
 
-    for pos in pos {
+    let screenshot_format = image::ImageFormat::OpenExr;
+    let dir = screenshot_dir().unwrap();
+    let mut ret = vec![];
+    for (img_num, pos) in pos.iter().enumerate() {
         cam.pos = *pos;
 
         let aspect = dim.0 as f32 / dim.1 as f32;
@@ -912,14 +918,20 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         future.wait(None).unwrap();
 
         let buffer_content = transfer_buffer.read().unwrap();
-        let file = Path::new("screenshot.png");
-        image::RgbaImage::from_raw(dim.0, dim.1, buffer_content.to_vec())
+        let file = format!(
+            "{}/{}.{}",
+            dir,
+            img_num,
+            screenshot_format.extensions_str()[0]
+        );
+        Rgba32FImage::from_raw(dim.0, dim.1, buffer_content.to_vec())
             .unwrap()
-            .save_with_format(file, image::ImageFormat::Png)
+            .save_with_format(&file, screenshot_format)
             .unwrap();
+        ret.push(file)
     }
 
-    vec!["screenshot.png".to_string()]
+    ret
 }
 
 fn screenshot_dir() -> Result<String, Box<dyn std::error::Error>> {
