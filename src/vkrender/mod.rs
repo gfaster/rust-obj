@@ -1,10 +1,12 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
+    AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo, RenderPassBeginInfo,
+    SubpassContents,
 };
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
@@ -14,7 +16,7 @@ use vulkano::device::{
 };
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
-use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, SwapchainImage};
+use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, StorageImage, SwapchainImage};
 use vulkano::instance::Instance;
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
@@ -477,6 +479,7 @@ mod vs {
         linalg_type: "nalgebra",
     }
 
+    // TODO: this might be revealed after entry point is added
     pub const MAT_BINDING: u32 = 0;
     pub const CAM_BINDING: u32 = 1;
 }
@@ -489,6 +492,7 @@ mod fs {
         linalg_type: "nalgebra"
     }
 
+    // TODO: this might be revealed after entry point is added
     pub const MTL_BINDING: u32 = 2;
     pub const LIGHT_BINDING: u32 = 3;
 
@@ -610,6 +614,9 @@ fn initialize_based_on_window(
 pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<String> {
     // I'm using the Vulkano examples to learn here
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/triangle.rs
+    //
+    // This example has some relevant information for offscreen rendering and saving
+    // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/msaa-renderpass.rs
     let library = VulkanLibrary::new().unwrap();
     let required_extensions = vulkano_win::required_extensions(&library);
 
@@ -626,6 +633,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     let mut cam = Camera::new();
 
     let device_extensions = DeviceExtensions {
+        khr_storage_buffer_storage_class: true,
         ..DeviceExtensions::empty()
     };
 
@@ -676,13 +684,17 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     // only have one queue, so we just use that
     let queue = queues.next().unwrap();
 
-    let image_format = Format::R32G32B32A32_SFLOAT;
+    let image_format = Format::R8G8B8A8_UNORM;
 
-    let image = AttachmentImage::with_usage(
+    let image = StorageImage::new(
         &memory_allocator,
-        [dim.0, dim.1],
+        vulkano::image::ImageDimensions::Dim2d {
+            width: dim.0,
+            height: dim.1,
+            array_layers: 1,
+        },
         image_format,
-        ImageUsage::STORAGE,
+        Some(queue.queue_family_index()),
     )
     .unwrap();
 
@@ -720,6 +732,20 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     )
     .unwrap();
 
+    let transfer_buffer = Buffer::from_iter(
+        &memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            usage: MemoryUsage::Upload,
+            ..Default::default()
+        },
+        (0..dim.0 * dim.1 * image_format.block_size().unwrap() as u32).map(|_| 0u8),
+    )
+    .unwrap();
+
     let uniform_buffer = SubbufferAllocator::new(
         memory_allocator.clone(),
         SubbufferAllocatorCreateInfo {
@@ -729,7 +755,9 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     );
 
     let vs = vs::load(device.clone()).unwrap();
+    let vs_entry = vs.entry_point("main").unwrap();
     let fs = fs::load(device.clone()).unwrap();
+    let fs_entry = fs.entry_point("main").unwrap();
 
     // now to initialize the pipelines - this is completely foreign to opengl
     let render_pass = vulkano::single_pass_renderpass!(
@@ -770,8 +798,8 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
             // list of triangles - I think this doesn't need to change for idx buf
             .input_assembly_state(InputAssemblyState::new())
             // entry point isn't necessarily main
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
+            .vertex_shader(vs_entry, ())
+            .fragment_shader(fs_entry, ())
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .depth_stencil_state(DepthStencilState::simple_depth_test())
             .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
@@ -790,7 +818,6 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
                 render_pass.clone(),
                 render_pass::FramebufferCreateInfo {
                     attachments: vec![view, depth_buffer.clone()],
-
                     ..Default::default()
                 },
             )
@@ -866,8 +893,12 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
             .bind_index_buffer(index_buffer.clone())
             .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
             .unwrap()
-            // additional passes would go here
             .end_render_pass()
+            .unwrap()
+            .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
+                image.clone(),
+                transfer_buffer.clone(),
+            ))
             .unwrap();
 
         let command_buffer = builder.build().unwrap();
@@ -880,8 +911,44 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
 
         future.wait(None).unwrap();
 
-        dbg!(image.usage());
+        let buffer_content = transfer_buffer.read().unwrap();
+        let file = Path::new("screenshot.png");
+        image::RgbaImage::from_raw(dim.0, dim.1, buffer_content.to_vec())
+            .unwrap()
+            .save_with_format(file, image::ImageFormat::Png)
+            .unwrap();
     }
 
-    vec![]
+    vec!["screenshot.png".to_string()]
+}
+
+fn screenshot_dir() -> Result<String, Box<dyn std::error::Error>> {
+    let dir_path = format!("{}/Pictures/rust_obj", std::env::var("HOME")?);
+    let base_path = format!(
+        "{}/Pictures/rust_obj/{}",
+        std::env::var("HOME")?,
+        std::process::id()
+    );
+
+    std::fs::create_dir(dir_path).map_or_else(
+        |e| {
+            if matches!(e.kind(), std::io::ErrorKind::AlreadyExists) {
+                Ok(())
+            } else {
+                Err(e)
+            }
+        },
+        |_| Ok(()),
+    )?;
+    std::fs::create_dir(&base_path).map_or_else(
+        |e| {
+            if matches!(e.kind(), std::io::ErrorKind::AlreadyExists) {
+                Ok(())
+            } else {
+                Err(e)
+            }
+        },
+        |_| Ok(()),
+    )?;
+    Ok(base_path)
 }
