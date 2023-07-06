@@ -37,7 +37,7 @@ use crate::mesh::{MeshData, MeshDataBuffs};
 
 use crate::vkrender::{fs, vs, screenshot_dir, VkVertex, generate_uniforms};
 
-pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<String> {
+pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<String> {
     // I'm using the Vulkano examples to learn here
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/triangle.rs
     //
@@ -264,8 +264,8 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     let screenshot_format = image::ImageFormat::OpenExr;
     let dir = screenshot_dir().unwrap();
     let mut ret = vec![];
-    for (img_num, pos) in pos.iter().enumerate() {
-        cam.pos = *pos;
+    for (img_num, pos_pair) in pos.iter().enumerate() {
+        cam.pos = pos_pair[0];
 
         let aspect = dim.0 as f32 / dim.1 as f32;
         let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);

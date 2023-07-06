@@ -33,10 +33,15 @@ fn main() {
 }
 
 fn screenshots(obj: mesh::MeshData) {
+    let cnt = 32;
+    let v = Vec::from_iter((0..cnt).map(|i| {
+        let theta = i as f32 / cnt as f32;
+        glm::vec3(theta.cos() * 3.0, 0.0, theta.sin() * 3.0)
+    }));
     let paths = renderer::depth_screenshots(
         obj,
         (512, 512),
-        &[glm::vec3(3.0, 0.0, 0.0), glm::vec3(1.0, 3.0, 0.0)],
+        &v
     );
     for path in paths {
         print!("{} ", path);
