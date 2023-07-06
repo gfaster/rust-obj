@@ -58,7 +58,7 @@ pub fn spectral_loss(img1: DynamicImage, img2: DynamicImage) -> Result<GrayImage
     let mut ret = GrayImage::new(width, height);
 
     for idx in 0..spec_loss.len() {
-        ret.put_pixel(idx.try_into().unwrap() % width, idx.try_into().unwrap() % height, image::Luma([(spec_loss[idx] * 255.0) as u8]));
+        ret.put_pixel(u32::try_from(idx).unwrap() % width, u32::try_from(idx).unwrap() % height, image::Luma([(spec_loss[idx] * 255.0) as u8]));
     }
 
     Ok(ret)
