@@ -1,8 +1,10 @@
+mod init;
+
 use std::sync::Arc;
 
 use image::Rgba32FImage;
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
-use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage};
+use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo, RenderPassBeginInfo,
@@ -10,9 +12,9 @@ use vulkano::command_buffer::{
 };
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::physical::PhysicalDeviceType;
+use vulkano::device::physical::{PhysicalDeviceType, PhysicalDevice};
 use vulkano::device::{
-    Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, QueueCreateInfo, QueueFlags,
+    Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, QueueCreateInfo, QueueFlags, QueueFamilyProperties, Queue,
 };
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
@@ -21,7 +23,7 @@ use vulkano::image::{
     SwapchainImage,
 };
 use vulkano::instance::Instance;
-use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
+use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator, MemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
 use vulkano::pipeline::graphics::vertex_input::{self, Vertex};
@@ -32,7 +34,7 @@ use vulkano::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{
     acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
-    SwapchainPresentInfo,
+    SwapchainPresentInfo, Surface,
 };
 use vulkano::sync::{FlushError, GpuFuture};
 use vulkano::{render_pass, sync, VulkanLibrary};
@@ -45,6 +47,7 @@ use crate::controls::{mouse_move, Camera};
 use crate::glm::Vec3;
 use crate::mesh::mtl::Material;
 use crate::mesh::{self, MeshData, MeshDataBuffs, MeshMeta};
+use crate::vkrender::init::initialize_device;
 
 pub mod consts {
     use nalgebra::ArrayStorage;
@@ -82,83 +85,55 @@ impl From<mesh::Vertex> for VkVertex {
     }
 }
 
+impl MeshDataBuffs<VkVertex>
+{
+    /// makes vertex and index subbuffers
+    pub fn to_buffers(self, allocator: &impl MemoryAllocator) -> (Subbuffer<[VkVertex]>, Subbuffer<[u32]>) {
+        let vertex_buffer = Buffer::from_iter(
+            allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::VERTEX_BUFFER,
+                ..Default::default()
+            }, AllocationCreateInfo {
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            }, self.verts).unwrap();
+        let index_buffer = Buffer::from_iter(
+            allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::INDEX_BUFFER,
+                ..Default::default()
+            }, AllocationCreateInfo {
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            }, self.indices).unwrap();
+        (vertex_buffer, index_buffer)
+    }
+}
+
+
+macro_rules! subbuffer_write_descriptors {
+    ($uniform:ident, $(($data:expr, $binding:expr)),*) => {
+        [ $( {
+            let subbuffer = $uniform.allocate_sized().unwrap();
+            *subbuffer.write().unwrap() = $data;
+            WriteDescriptorSet::buffer(
+                $binding, subbuffer)
+        }, )* ]
+    }
+}
+
+
 pub fn display_model(m: mesh::MeshData) {
     // I'm using the Vulkano examples to learn here
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/triangle.rs
-    let library = VulkanLibrary::new().unwrap();
-    let required_extensions = vulkano_win::required_extensions(&library);
-
-    let instance = Instance::new(
-        library,
-        vulkano::instance::InstanceCreateInfo {
-            enabled_extensions: required_extensions,
-            enumerate_portability: true,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    let event_loop = EventLoop::new();
-
-    let mut cam = Camera::new();
-
-    // instance maybe needs to be cloned?
-    let surface = WindowBuilder::new()
-        .build_vk_surface(&event_loop, instance.clone())
-        .unwrap();
-
-    let device_extensions = DeviceExtensions {
-        khr_swapchain: true,
-        ..DeviceExtensions::empty()
-    };
-
-    // find a physical device that supports all the features we need
-    let (physical_device, queue_family_index) = instance
-        .enumerate_physical_devices()
-        .unwrap()
-        .filter(|p| p.supported_extensions().contains(&device_extensions))
-        .filter_map(|p| {
-            p.queue_family_properties()
-                .iter()
-                .enumerate()
-                .position(|(i, q)| {
-                    q.queue_flags.intersects(QueueFlags::GRAPHICS)
-                        && p.surface_support(i as u32, &surface).unwrap_or(false)
-                })
-                .map(|i| (p, i as u32))
-        })
-        .min_by_key(|(p, _)| match p.properties().device_type {
-            PhysicalDeviceType::DiscreteGpu => 0,
-            PhysicalDeviceType::IntegratedGpu => 1,
-            PhysicalDeviceType::VirtualGpu => 2,
-            PhysicalDeviceType::Cpu => 3,
-            PhysicalDeviceType::Other => 4,
-            _ => 5,
-        })
-        .expect("no supported physical device found");
-
-    eprintln!(
-        "Using device {} (type: {:?})",
-        physical_device.properties().device_name,
-        physical_device.properties().device_type
+    
+    let (device, queue, surface, event_loop) = init::initialize_device_window(
+        DeviceExtensions {
+            khr_swapchain: true,
+            ..DeviceExtensions::empty()
+        }
     );
-
-    // initialization of device
-    let (device, mut queues) = Device::new(
-        physical_device,
-        DeviceCreateInfo {
-            enabled_extensions: device_extensions,
-            queue_create_infos: vec![QueueCreateInfo {
-                queue_family_index,
-                ..Default::default()
-            }],
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    // only have one queue, so we just use that
-    let queue = queues.next().unwrap();
 
     let (mut swapchain, images) = {
         let surface_capabilites = device
@@ -203,39 +178,11 @@ pub fn display_model(m: mesh::MeshData) {
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-    // setup done - now to mesh
-    let mesh_meta = m.get_meta();
-    let MeshDataBuffs {
-        verts: vertices,
-        indices,
-    }: MeshDataBuffs<VkVertex> = m.into();
+    let mut cam = Camera::new();
 
-    let vertex_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::VERTEX_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            usage: MemoryUsage::Upload,
-            ..Default::default()
-        },
-        vertices,
-    )
-    .unwrap();
-    let index_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::INDEX_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            usage: MemoryUsage::Upload,
-            ..Default::default()
-        },
-        indices,
-    )
-    .unwrap();
+    let mesh_meta = m.get_meta();
+    let mesh_buffs: MeshDataBuffs<VkVertex> = m.into();
+    let (vertex_buffer, index_buffer) = mesh_buffs.to_buffers(&memory_allocator);
 
     let uniform_buffer = SubbufferAllocator::new(
         memory_allocator.clone(),
@@ -366,31 +313,17 @@ pub fn display_model(m: mesh::MeshData) {
                 let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
                 let layout = pipeline.layout().set_layouts().get(0).unwrap();
 
-                macro_rules! gen_write_descriptors {
-                    ($uniform:ident, $(($data:expr, $binding:expr)),*) => {
-                        [
-                            $( {
-                                let subbuffer = $uniform.allocate_sized().unwrap();
-                                *subbuffer.write().unwrap() = $data;
-                                WriteDescriptorSet::buffer(
-                                    $binding, subbuffer)
-                            }, )*
-                        ]
-                    };
-                }
 
                 let set = PersistentDescriptorSet::new(
                     &descriptor_set_allocator,
                     layout.clone(),
-                    gen_write_descriptors!(
-                        uniform_buffer,
-                        (s_cam, vs::CAM_BINDING),
-                        (s_mat, vs::MAT_BINDING),
-                        (s_mtl, fs::MTL_BINDING),
-                        (s_light, fs::LIGHT_BINDING)
-                    ),
-                )
-                .unwrap();
+            subbuffer_write_descriptors!{
+                uniform_buffer,
+                (s_cam, vs::CAM_BINDING),
+                (s_mat, vs::MAT_BINDING),
+                (s_mtl, fs::MTL_BINDING),
+                (s_light, fs::LIGHT_BINDING)
+            }).unwrap();
 
                 // need to acquire image before drawing, blocks if it's not ready yet (too many
                 // commands), so it has optional timeout
@@ -621,74 +554,15 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     //
     // This example has some relevant information for offscreen rendering and saving
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/msaa-renderpass.rs
-    let library = VulkanLibrary::new().unwrap();
-    let required_extensions = vulkano_win::required_extensions(&library);
-
-    let instance = Instance::new(
-        library,
-        vulkano::instance::InstanceCreateInfo {
-            enabled_extensions: required_extensions,
-            enumerate_portability: true,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    let mut cam = Camera::new();
-
     let device_extensions = DeviceExtensions {
         khr_storage_buffer_storage_class: true,
         ..DeviceExtensions::empty()
     };
-
-    // find a physical device that supports all the features we need
-    let (physical_device, queue_family_index) = instance
-        .enumerate_physical_devices()
-        .unwrap()
-        .filter(|p| p.supported_extensions().contains(&device_extensions))
-        .filter_map(|p| {
-            p.queue_family_properties()
-                .iter()
-                .enumerate()
-                .position(|(_, q)| q.queue_flags.intersects(QueueFlags::GRAPHICS))
-                .map(|i| (p, i as u32))
-        })
-        .min_by_key(|(p, _)| match p.properties().device_type {
-            PhysicalDeviceType::DiscreteGpu => 0,
-            PhysicalDeviceType::IntegratedGpu => 1,
-            PhysicalDeviceType::VirtualGpu => 2,
-            PhysicalDeviceType::Cpu => 3,
-            PhysicalDeviceType::Other => 4,
-            _ => 5,
-        })
-        .expect("no supported physical device found");
-
-    eprintln!(
-        "Using device {} (type: {:?})",
-        physical_device.properties().device_name,
-        physical_device.properties().device_type
-    );
-
-    // initialization of device
-    let (device, mut queues) = Device::new(
-        physical_device,
-        DeviceCreateInfo {
-            enabled_extensions: device_extensions,
-            queue_create_infos: vec![QueueCreateInfo {
-                queue_family_index,
-                ..Default::default()
-            }],
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    let (device, queue) = initialize_device(device_extensions);
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-    // only have one queue, so we just use that
-    let queue = queues.next().unwrap();
-
-    const image_format: Format = Format::R32G32B32A32_SFLOAT;
+    const IMAGE_FORMAT: Format = Format::R32G32B32A32_SFLOAT;
 
     let image = StorageImage::new(
         &memory_allocator,
@@ -697,44 +571,15 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
             height: dim.1,
             array_layers: 1,
         },
-        image_format,
+        IMAGE_FORMAT,
         Some(queue.queue_family_index()),
     )
     .unwrap();
 
-    // setup done - now to mesh
-    let mesh_meta = m.get_meta();
-    let MeshDataBuffs {
-        verts: vertices,
-        indices,
-    }: MeshDataBuffs<VkVertex> = m.into();
 
-    let vertex_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::VERTEX_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            usage: MemoryUsage::Upload,
-            ..Default::default()
-        },
-        vertices,
-    )
-    .unwrap();
-    let index_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::INDEX_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            usage: MemoryUsage::Upload,
-            ..Default::default()
-        },
-        indices,
-    )
-    .unwrap();
+    let mesh_meta = m.get_meta();
+    let mesh_buffs: MeshDataBuffs<VkVertex> = m.into();
+    let (vertex_buffer, index_buffer) = mesh_buffs.to_buffers(&memory_allocator);
 
     let transfer_buffer = Buffer::from_iter(
         &memory_allocator,
@@ -748,7 +593,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         },
         (0..dim.0
             * dim.1
-            * (image_format.block_size().unwrap() / std::mem::size_of::<f32>() as u64) as u32)
+            * (IMAGE_FORMAT.block_size().unwrap() / std::mem::size_of::<f32>() as u64) as u32)
             .map(|_| 0f32),
     )
     .unwrap();
@@ -773,7 +618,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
             color: {
             load: Clear,
             store: Store,
-            format: image_format,
+            format: IMAGE_FORMAT,
             samples: 1,
         },
 
@@ -841,6 +686,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     let screenshot_format = image::ImageFormat::OpenExr;
     let dir = screenshot_dir().unwrap();
     let mut ret = vec![];
+    let mut cam = Camera::new();
     for (img_num, pos) in pos.iter().enumerate() {
         cam.pos = *pos;
 
@@ -876,45 +722,21 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
         let layout = pipeline.layout().set_layouts().get(0).unwrap();
 
-        macro_rules! gen_write_descriptors {
-        ($uniform:ident, $(($data:expr, $binding:expr)),*) => {
-            [
-                $( {
-                    let subbuffer = $uniform.allocate_sized().unwrap();
-                    *subbuffer.write().unwrap() = $data;
-                    WriteDescriptorSet::buffer(
-                        $binding, subbuffer)
-                }, )*
-            ]
-            }
-        }
 
         let set = PersistentDescriptorSet::new(
             &descriptor_set_allocator,
             layout.clone(),
-            [
-                {
-                    let subbuffer = uniform_buffer.allocate_sized().unwrap();
-                    *subbuffer.write().unwrap() = s_cam;
-                    WriteDescriptorSet::buffer((vs::CAM_BINDING), subbuffer)
-                },
-                {
-                    let subbuffer = uniform_buffer.allocate_sized().unwrap();
-                    *subbuffer.write().unwrap() = s_mat;
-                    WriteDescriptorSet::buffer((vs::MAT_BINDING), subbuffer)
-                },
-                {
-                    let subbuffer = uniform_buffer.allocate_sized().unwrap();
-                    *subbuffer.write().unwrap() = s_mtl;
-                    WriteDescriptorSet::buffer((fs::MTL_BINDING), subbuffer)
-                },
-                {
-                    let subbuffer = uniform_buffer.allocate_sized().unwrap();
-                    *subbuffer.write().unwrap() = s_light;
-                    WriteDescriptorSet::buffer((fs::LIGHT_BINDING), subbuffer)
-                },
-                WriteDescriptorSet::image_view_sampler(4, texture, sampler)
-            ],
+            subbuffer_write_descriptors!{
+                uniform_buffer,
+                (s_cam, vs::CAM_BINDING),
+                (s_mat, vs::MAT_BINDING),
+                (s_mtl, fs::MTL_BINDING),
+                (s_light, fs::LIGHT_BINDING)
+            }.into_iter().chain(
+                    [
+                        WriteDescriptorSet::image_view_sampler(4, texture, sampler)
+                    ]
+                )
         )
         .unwrap();
 
