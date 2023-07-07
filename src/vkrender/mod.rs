@@ -16,7 +16,10 @@ use vulkano::device::{
 };
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
-use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, StorageImage, SwapchainImage};
+use vulkano::image::{
+    AttachmentImage, ImageAccess, ImageDimensions, ImageUsage, ImmutableImage, StorageImage,
+    SwapchainImage,
+};
 use vulkano::instance::Instance;
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
@@ -25,6 +28,7 @@ use vulkano::pipeline::graphics::vertex_input::{self, Vertex};
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
 use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
+use vulkano::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{
     acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
@@ -684,7 +688,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     // only have one queue, so we just use that
     let queue = queues.next().unwrap();
 
-    let image_format = Format::R32G32B32A32_SFLOAT;
+    const image_format: Format = Format::R32G32B32A32_SFLOAT;
 
     let image = StorageImage::new(
         &memory_allocator,
@@ -803,7 +807,6 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
             // entry point isn't necessarily main
             .vertex_shader(vs_entry, ())
             .fragment_shader(fs_entry, ())
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .depth_stencil_state(DepthStencilState::simple_depth_test())
             .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
                 Viewport {
@@ -841,6 +844,34 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     for (img_num, pos) in pos.iter().enumerate() {
         cam.pos = *pos;
 
+        let mut builder = AutoCommandBufferBuilder::primary(
+            &command_buffer_allocator,
+            queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        let texture = {
+            let img = mesh_meta.material.diffuse_map().unwrap();
+            let dimensions = ImageDimensions::Dim2d {
+                width: img.width(),
+                height: img.height(),
+                array_layers: 1,
+            };
+            let image = ImmutableImage::from_iter(
+                &memory_allocator,
+                img.as_raw().clone(),
+                dimensions,
+                vulkano::image::MipmapsCount::Log2,
+                Format::R8G8B8A8_SRGB,
+                &mut builder,
+            )
+            .unwrap();
+
+            ImageView::new_default(image).unwrap()
+        };
+        let sampler =
+            Sampler::new(device.clone(), SamplerCreateInfo::simple_repeat_linear()).unwrap();
+
         let aspect = dim.0 as f32 / dim.1 as f32;
         let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
         let layout = pipeline.layout().set_layouts().get(0).unwrap();
@@ -861,20 +892,29 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         let set = PersistentDescriptorSet::new(
             &descriptor_set_allocator,
             layout.clone(),
-            gen_write_descriptors!(
-                uniform_buffer,
-                (s_cam, vs::CAM_BINDING),
-                (s_mat, vs::MAT_BINDING),
-                (s_mtl, fs::MTL_BINDING),
-                (s_light, fs::LIGHT_BINDING)
-            ),
-        )
-        .unwrap();
-
-        let mut builder = AutoCommandBufferBuilder::primary(
-            &command_buffer_allocator,
-            queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
+            [
+                {
+                    let subbuffer = uniform_buffer.allocate_sized().unwrap();
+                    *subbuffer.write().unwrap() = s_cam;
+                    WriteDescriptorSet::buffer((vs::CAM_BINDING), subbuffer)
+                },
+                {
+                    let subbuffer = uniform_buffer.allocate_sized().unwrap();
+                    *subbuffer.write().unwrap() = s_mat;
+                    WriteDescriptorSet::buffer((vs::MAT_BINDING), subbuffer)
+                },
+                {
+                    let subbuffer = uniform_buffer.allocate_sized().unwrap();
+                    *subbuffer.write().unwrap() = s_mtl;
+                    WriteDescriptorSet::buffer((fs::MTL_BINDING), subbuffer)
+                },
+                {
+                    let subbuffer = uniform_buffer.allocate_sized().unwrap();
+                    *subbuffer.write().unwrap() = s_light;
+                    WriteDescriptorSet::buffer((fs::LIGHT_BINDING), subbuffer)
+                },
+                WriteDescriptorSet::image_view_sampler(4, texture, sampler)
+            ],
         )
         .unwrap();
 

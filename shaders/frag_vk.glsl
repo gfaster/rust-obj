@@ -20,6 +20,8 @@ layout(set = 0, binding = 3) uniform ShaderLight {
     vec3 light_pos;
 } Light;
 
+layout(set = 0, binding = 4) uniform sampler2D s_tex;
+
 
 vec4 diffuse() {
     vec3 base_color = Mtl.base_diffuse.xyz;
@@ -47,5 +49,11 @@ vec4 depth_buffer() {
 void main()
 {
     FragColor = diffuse();
+
+    vec4 tex_color = texture(s_tex, v_texCoord);
+    if (tex_color.w < 0.1) {
+        discard;
+    }
+
     FragColor = depth_buffer();
 }

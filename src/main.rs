@@ -28,8 +28,8 @@ fn main() {
     let obj = wavefrontobj::load(input).expect("pass a valid file path");
     // dbg!(obj.tris().collect::<Vec<_>>());
 
-    renderer::display_model(obj);
-    // screenshots(obj);
+    // renderer::display_model(obj);
+    screenshots(obj);
 }
 
 fn screenshots(obj: mesh::MeshData) {
@@ -38,11 +38,7 @@ fn screenshots(obj: mesh::MeshData) {
         let theta = i as f32 / cnt as f32;
         glm::vec3(theta.cos() * 3.0, 0.0, theta.sin() * 3.0)
     }));
-    let paths = renderer::depth_screenshots(
-        obj,
-        (512, 512),
-        &v
-    );
+    let paths = renderer::depth_screenshots(obj, (512, 512), &v);
     for path in paths {
         print!("{} ", path);
     }
