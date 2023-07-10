@@ -4,12 +4,13 @@
 
 extern crate nalgebra_glm as glm;
 
-mod controls;
-mod depth_classify;
+//mod controls;
+//mod depth_classify;
 mod error;
 mod mesh;
 mod wavefrontobj;
 
+/*
 #[cfg(feature = "glium")]
 mod grender;
 #[cfg(feature = "glium")]
@@ -19,7 +20,7 @@ use grender as renderer;
 mod vkrender;
 #[cfg(feature = "vulkano")]
 use vkrender as renderer;
-
+*/
 
 fn main() {
     let input = std::env::args()
@@ -33,6 +34,7 @@ fn main() {
     // screenshots(obj);
 }
 
+/*
 fn screenshots(obj: mesh::MeshData) {
     let paths = renderer::depth_screenshots(
         obj, 
@@ -47,3 +49,4 @@ fn screenshots(obj: mesh::MeshData) {
     }
     println!("");
 }
+*/

@@ -133,31 +133,31 @@ impl Material {
                     registry.insert(name.to_string(), Material::new());
                     curr_mat = name.to_string();
                 },
-                ["Ka", r, g, b] => match registry.get(&curr_mat) {
+                ["Ka", r, g, b] => match registry.get_mut(&curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(mat) => mat.ambient = [r.parse::<f32>()?, g.parse()?, b.parse()?].into()
                 },
-                ["Kd", r, g, b] => match registry.get(&curr_mat) {
+                ["Kd", r, g, b] => match registry.get_mut(&curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(mat) => mat.diffuse = [r.parse::<f32>()?, g.parse()?, b.parse()?].into()
                 },
-                ["Ks", r, g, b] => match registry.get(&curr_mat) {
+                ["Ks", r, g, b] => match registry.get_mut(&curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(mat) => mat.specular = [r.parse::<f32>()?, g.parse()?, b.parse()?].into()
                 },
-                ["Ns", factor] => match registry.get(&curr_mat) {
+                ["Ns", factor] => match registry.get_mut(&curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(mat) => mat.spec_exp = factor.parse()?
                 },
-                ["map_Ka", map_file] => match registry.get(&curr_mat) {
+                ["map_Ka", map_file] => match registry.get_mut(&curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(mat) => mat.ambient_map = Some(read_map(path.as_ref().with_file_name(map_file))?.into())
                 },
-                ["map_Kd", map_file] => match registry.get(&curr_mat) {
+                ["map_Kd", map_file] => match registry.get_mut(&curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(mat) => mat.diffuse_map = Some(read_map(path.as_ref().with_file_name(map_file))?.into())
                 },
-                ["bump", map_file] | ["map_Bump", map_file] => match registry.get(&curr_mat) {
+                ["bump", map_file] | ["map_Bump", map_file] => match registry.get_mut(&curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(mat) => mat.normal_map = Some(read_map(path.as_ref().with_file_name(map_file))?.into())
                 },

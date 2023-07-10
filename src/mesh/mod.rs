@@ -232,7 +232,7 @@ impl MeshData {
         &mut self.materials
     }
 
-    pub fn add_material(&self, mat: Material) {
+    pub fn add_material(&mut self, mat: Material) {
         self.materials.push(((self.f.len() / 3).try_into().unwrap(), mat));
     }
 
