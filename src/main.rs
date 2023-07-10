@@ -29,7 +29,7 @@ fn main() {
     let obj = wavefrontobj::load(input).expect("pass a valid file path");
     // dbg!(obj.tris().collect::<Vec<_>>());
 
-    renderer::display_model(obj);
+    println!("{}", obj.materials().len());
     // screenshots(obj);
 }
 
