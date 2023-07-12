@@ -31,6 +31,10 @@ fn main() {
     // dbg!(obj.tris().collect::<Vec<_>>());
 
     println!("{}", obj.materials().len());
+    println!("{:?}", obj.materials()[0].1);
+    println!("{:?}", obj.materials()[0].0);
+    println!("{:?}", obj.materials()[1].1);
+    println!("{:?}", obj.materials()[1].0);
     // screenshots(obj);
 }
 

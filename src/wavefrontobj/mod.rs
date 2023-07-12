@@ -19,6 +19,7 @@ enum WavefrontObjError {
     InvalidDirective,
     MissingArguments,
     UnknownMaterial,
+    MissingMaterial,
 }
 
 impl Display for WavefrontObjError {
@@ -31,7 +32,14 @@ impl Error for WavefrontObjError {}
 
 type ObjResult<T> = Result<T, Box<dyn Error>>;
 
-fn read_line(line: &str, obj: &mut mesh::MeshData, path: impl AsRef<Path>, mtl_registry: &mut HashMap<String, Material>) -> ObjResult<()> {
+fn read_line(
+    line: &str, 
+    obj: &mut mesh::MeshData, 
+    curr_mat: &mut Option<String>,
+    path: impl AsRef<Path>, 
+    mtl_registry: &mut HashMap<String, Material>
+) -> ObjResult<()> {
+
     let noncomment = match line.split('#').next() {
         None => line,
         Some(s) => s,
@@ -41,8 +49,6 @@ fn read_line(line: &str, obj: &mut mesh::MeshData, path: impl AsRef<Path>, mtl_r
     if tokens.is_empty() {
         return Ok(());
     };
-
-    let mut curr_mat = Material::new_dev();
 
     match tokens[0] {
         "f" => {
@@ -58,19 +64,30 @@ fn read_line(line: &str, obj: &mut mesh::MeshData, path: impl AsRef<Path>, mtl_r
             obj.add_vertex_uv(parse_texture_coords(&tokens)?);
         }
         "mtllib" => {
-            Material::load(path.as_ref().with_file_name(tokens.get(1).ok_or(WavefrontObjError::MissingArguments)?), mtl_registry);
+            Material::load(path
+                .as_ref()
+                .with_file_name(tokens.get(1).ok_or(WavefrontObjError::MissingArguments)?), mtl_registry).unwrap();
+            //*curr_mat = Some(mtl_registry.keys().next().ok_or(WavefrontObjError::MissingMaterial).unwrap().clone());
         }
         "usemtl" => {
-            match mtl_registry.get(*tokens.get(1).ok_or(WavefrontObjError::MissingArguments)?) {
+            match mtl_registry.get(tokens.get(1).ok_or(WavefrontObjError::MissingArguments)?.clone()) {
                 None => return Err(WavefrontObjError::UnknownMaterial.into()),
                 Some(mat) => {
-                    curr_mat = *mat;
-                    obj.add_material(curr_mat);
+                    match curr_mat {
+                        None => *curr_mat = Some(mat.name().to_string()),
+                        Some(prev_mat) => {
+                            obj.set_material(mtl_registry
+                            .get(prev_mat)
+                            .ok_or(WavefrontObjError::UnknownMaterial).unwrap().clone());
+                            *curr_mat = Some(mat.name().to_string());
+                        }
+                    }
                 },
             }
         }
         _ => (),
     };
+
     Ok(())
 }
 
@@ -162,12 +179,18 @@ pub fn load(path: impl AsRef<Path>) -> std::io::Result<mesh::MeshData> {
 
     let mut objmesh = mesh::MeshData::new();
     let mut mtl_registry = HashMap::new();
+    let mut curr_mat = None;
 
     while buf.read_line(&mut line).map_or(0, |x| x) != 0 {
-        read_line(line.as_str(), &mut objmesh, &path, &mut mtl_registry).unwrap_or_else(|e| {
+        read_line(line.as_str(), &mut objmesh, &mut curr_mat, &path, &mut mtl_registry).unwrap_or_else(|e| {
             eprintln!("{:?} could not be read with error {e}", line);
         });
         line.clear();
+    }
+
+    match curr_mat {
+        None => (),
+        Some(mat) => objmesh.set_material(mtl_registry.get(&mat).ok_or(WavefrontObjError::UnknownMaterial).unwrap().clone())
     }
 
     Ok(objmesh)
