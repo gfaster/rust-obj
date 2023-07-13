@@ -1,4 +1,4 @@
-mod init;
+pub mod init;
 
 use std::sync::Arc;
 
@@ -12,9 +12,10 @@ use vulkano::command_buffer::{
 };
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::physical::{PhysicalDeviceType, PhysicalDevice};
+use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
 use vulkano::device::{
-    Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, QueueCreateInfo, QueueFlags, QueueFamilyProperties, Queue,
+    Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, Queue, QueueCreateInfo,
+    QueueFamilyProperties, QueueFlags,
 };
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
@@ -23,7 +24,9 @@ use vulkano::image::{
     SwapchainImage,
 };
 use vulkano::instance::Instance;
-use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator, MemoryAllocator};
+use vulkano::memory::allocator::{
+    AllocationCreateInfo, MemoryAllocator, MemoryUsage, StandardMemoryAllocator,
+};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
 use vulkano::pipeline::graphics::vertex_input::{self, Vertex};
@@ -33,8 +36,8 @@ use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{
-    acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
-    SwapchainPresentInfo, Surface,
+    acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
+    SwapchainCreationError, SwapchainPresentInfo,
 };
 use vulkano::sync::{FlushError, GpuFuture};
 use vulkano::{render_pass, sync, VulkanLibrary};
@@ -85,32 +88,41 @@ impl From<mesh::Vertex> for VkVertex {
     }
 }
 
-impl MeshDataBuffs<VkVertex>
-{
+impl MeshDataBuffs<VkVertex> {
     /// makes vertex and index subbuffers
-    pub fn to_buffers(self, allocator: &impl MemoryAllocator) -> (Subbuffer<[VkVertex]>, Subbuffer<[u32]>) {
+    pub fn to_buffers(
+        self,
+        allocator: &impl MemoryAllocator,
+    ) -> (Subbuffer<[VkVertex]>, Subbuffer<[u32]>) {
         let vertex_buffer = Buffer::from_iter(
             allocator,
             BufferCreateInfo {
                 usage: BufferUsage::VERTEX_BUFFER,
                 ..Default::default()
-            }, AllocationCreateInfo {
+            },
+            AllocationCreateInfo {
                 usage: MemoryUsage::Upload,
                 ..Default::default()
-            }, self.verts).unwrap();
+            },
+            self.verts,
+        )
+        .unwrap();
         let index_buffer = Buffer::from_iter(
             allocator,
             BufferCreateInfo {
                 usage: BufferUsage::INDEX_BUFFER,
                 ..Default::default()
-            }, AllocationCreateInfo {
+            },
+            AllocationCreateInfo {
                 usage: MemoryUsage::Upload,
                 ..Default::default()
-            }, self.indices).unwrap();
+            },
+            self.indices,
+        )
+        .unwrap();
         (vertex_buffer, index_buffer)
     }
 }
-
 
 macro_rules! subbuffer_write_descriptors {
     ($uniform:ident, $(($data:expr, $binding:expr)),*) => {
@@ -123,17 +135,14 @@ macro_rules! subbuffer_write_descriptors {
     }
 }
 
-
 pub fn display_model(m: mesh::MeshData) {
     // I'm using the Vulkano examples to learn here
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/triangle.rs
-    
-    let (device, queue, surface, event_loop) = init::initialize_device_window(
-        DeviceExtensions {
-            khr_swapchain: true,
-            ..DeviceExtensions::empty()
-        }
-    );
+
+    let (device, queue, surface, event_loop) = init::initialize_device_window(DeviceExtensions {
+        khr_swapchain: true,
+        ..DeviceExtensions::empty()
+    });
 
     let (mut swapchain, images) = {
         let surface_capabilites = device
@@ -313,17 +322,18 @@ pub fn display_model(m: mesh::MeshData) {
                 let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
                 let layout = pipeline.layout().set_layouts().get(0).unwrap();
 
-
                 let set = PersistentDescriptorSet::new(
                     &descriptor_set_allocator,
                     layout.clone(),
-            subbuffer_write_descriptors!{
-                uniform_buffer,
-                (s_cam, vs::CAM_BINDING),
-                (s_mat, vs::MAT_BINDING),
-                (s_mtl, fs::MTL_BINDING),
-                (s_light, fs::LIGHT_BINDING)
-            }).unwrap();
+                    subbuffer_write_descriptors! {
+                        uniform_buffer,
+                        (s_cam, vs::CAM_BINDING),
+                        (s_mat, vs::MAT_BINDING),
+                        (s_mtl, fs::MTL_BINDING),
+                        (s_light, fs::LIGHT_BINDING)
+                    },
+                )
+                .unwrap();
 
                 // need to acquire image before drawing, blocks if it's not ready yet (too many
                 // commands), so it has optional timeout
@@ -554,6 +564,13 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     //
     // This example has some relevant information for offscreen rendering and saving
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/msaa-renderpass.rs
+    //
+    // 2023-07-07: Learning about how best to architect rendering is interesting. I've used these
+    // pages to learn more. Not all of these were useful, but they were all interesting.
+    //
+    // https://vkguide.dev/docs/gpudriven/gpu_driven_engines/
+    // https://advances.realtimerendering.com/s2020/RenderingDoomEternal.pdf
+    // https://on-demand.gputechconf.com/gtc/2013/presentations/S3032-Advanced-Scenegraph-Rendering-Pipeline.pdf
     let device_extensions = DeviceExtensions {
         khr_storage_buffer_storage_class: true,
         ..DeviceExtensions::empty()
@@ -575,7 +592,6 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         Some(queue.queue_family_index()),
     )
     .unwrap();
-
 
     let mesh_meta = m.get_meta();
     let mesh_buffs: MeshDataBuffs<VkVertex> = m.into();
@@ -611,7 +627,6 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     let fs = fs::load(device.clone()).unwrap();
     let fs_entry = fs.entry_point("main").unwrap();
 
-    // now to initialize the pipelines - this is completely foreign to opengl
     let render_pass = vulkano::single_pass_renderpass!(
         device.clone(),
         attachments: {
@@ -722,21 +737,18 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
         let layout = pipeline.layout().set_layouts().get(0).unwrap();
 
-
         let set = PersistentDescriptorSet::new(
             &descriptor_set_allocator,
             layout.clone(),
-            subbuffer_write_descriptors!{
+            subbuffer_write_descriptors! {
                 uniform_buffer,
                 (s_cam, vs::CAM_BINDING),
                 (s_mat, vs::MAT_BINDING),
                 (s_mtl, fs::MTL_BINDING),
                 (s_light, fs::LIGHT_BINDING)
-            }.into_iter().chain(
-                    [
-                        WriteDescriptorSet::image_view_sampler(4, texture, sampler)
-                    ]
-                )
+            }
+            .into_iter()
+            .chain([WriteDescriptorSet::image_view_sampler(4, texture, sampler)]),
         )
         .unwrap();
 

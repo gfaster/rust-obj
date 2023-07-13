@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use image::Rgba32FImage;
+use std::sync::Arc;
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
@@ -9,9 +9,10 @@ use vulkano::command_buffer::{
 };
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::physical::{PhysicalDeviceType, PhysicalDevice};
+use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
 use vulkano::device::{
-    Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, QueueCreateInfo, QueueFlags, QueueFamilyProperties, Queue,
+    Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, Queue, QueueCreateInfo,
+    QueueFamilyProperties, QueueFlags,
 };
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
@@ -30,8 +31,8 @@ use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{
-    acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
-    SwapchainPresentInfo, Surface,
+    acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
+    SwapchainCreationError, SwapchainPresentInfo,
 };
 use vulkano::sync::{FlushError, GpuFuture};
 use vulkano::{render_pass, sync, VulkanLibrary};
@@ -46,8 +47,9 @@ use crate::mesh::mtl::Material;
 use crate::mesh::{self, MeshData, MeshDataBuffs, MeshMeta};
 
 /// initialize the device to use for rendering that supports necessary extensions with a surface.
-pub fn initialize_device_window(device_extensions: DeviceExtensions) -> (Arc<Device>, Arc<Queue>, Arc<Surface>, EventLoop<()>) 
-{
+pub fn initialize_device_window(
+    device_extensions: DeviceExtensions,
+) -> (Arc<Device>, Arc<Queue>, Arc<Surface>, EventLoop<()>) {
     let library = VulkanLibrary::new().unwrap();
     let required_extensions = vulkano_win::required_extensions(&library);
 
@@ -118,8 +120,7 @@ pub fn initialize_device_window(device_extensions: DeviceExtensions) -> (Arc<Dev
 }
 
 /// initialize the device to use for rendering that supports necessary extensions.
-pub fn initialize_device(device_extensions: DeviceExtensions) -> (Arc<Device>, Arc<Queue>) 
-{
+pub fn initialize_device(device_extensions: DeviceExtensions) -> (Arc<Device>, Arc<Queue>) {
     let library = VulkanLibrary::new().unwrap();
     let required_extensions = vulkano_win::required_extensions(&library);
 
@@ -141,9 +142,7 @@ pub fn initialize_device(device_extensions: DeviceExtensions) -> (Arc<Device>, A
             p.queue_family_properties()
                 .iter()
                 .enumerate()
-                .position(|(_, q)| {
-                    q.queue_flags.intersects(QueueFlags::GRAPHICS)
-                })
+                .position(|(_, q)| q.queue_flags.intersects(QueueFlags::GRAPHICS))
                 .map(|i| (p, i as u32))
         })
         .min_by_key(|(p, _)| match p.properties().device_type {
