@@ -107,7 +107,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
                 VertexIndexed {pos: $idx, tex: Some($idx), norm: Some(0)}
             };
         }
-        frame_mesh.add_tri([vindex!(0), vindex!(1), vindex!(2)]).unwrap();
+        frame_mesh.add_tri([vindex!(0), vindex!(1), vindex!(3)]).unwrap();
         frame_mesh.add_tri([vindex!(3), vindex!(1), vindex!(2)]).unwrap();
 
         Into::<MeshDataBuffs<VkVertex>>::into(frame_mesh).to_buffers(&memory_allocator)
@@ -298,9 +298,9 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
                 render_pass,
                 render_pass::FramebufferCreateInfo {
                     attachments: vec![
+                        view,
                         color_buffer_1.clone(),
                         color_buffer_2.clone(),
-                        view,
                         depth_buffer_1,
                         depth_buffer_2,
                     ],
@@ -408,9 +408,9 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
             .begin_render_pass(
                 RenderPassBeginInfo {
                     clear_values: vec![
-                        Some([0.0, 0.0, 1.0, 1.0].into()),
-                        Some([0.0, 1.0, 0.0, 1.0].into()),
-                        Some([1.0, 0.0, 0.0, 1.0].into()),
+                        Some([0.0, 0.0, 0.0, 1.0].into()),
+                        Some([1.0, 1.0, 1.0, 1.0].into()),
+                        Some([1.0, 1.0, 1.0, 1.0].into()),
                         Some(1.0.into()),
                         Some(1.0.into()),
                     ],

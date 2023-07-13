@@ -9,6 +9,7 @@ layout(location = 0) in vec3 position;
 
 void main()
 {
-  vec4 pos = vec4(position.xy, 0.0f, 1.0f);
+  vec2 trans = (position.xy - 0.5f) * 2.0f;
+  vec4 pos = vec4(trans, 0.0f, 1.0f);
   gl_Position = pos;
 }

@@ -48,10 +48,10 @@ fn screenshots(obj: mesh::MeshData) {
 
 
 fn screenshots_compare(obj: mesh::MeshData) {
-    let cnt = 1;
-    let diff = 0.2;
+    let cnt = 64;
+    let diff = 0.1;
     let v = Vec::from_iter((0..cnt).map(|i| {
-        let theta = i as f32 / cnt as f32;
+        let theta = i as f32 * core::f32::consts::TAU / cnt as f32 ;
         [ glm::vec3(theta.cos() * 3.0, 0.0, theta.sin() * 3.0), 
             glm::vec3((theta + diff).cos() * 3.0, 0.0, (theta + diff).sin() * 3.0) ]
     }));
