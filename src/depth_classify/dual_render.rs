@@ -10,14 +10,12 @@ use vulkano::command_buffer::{
 };
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::physical::PhysicalDeviceType;
-use vulkano::device::{
-    Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, QueueCreateInfo, QueueFlags,
-};
+
+use vulkano::device::{DeviceExtensions, DeviceOwned};
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
-use vulkano::image::{AttachmentImage, ImageUsage, StorageImage, ImageDimensions, ImmutableImage};
-use vulkano::instance::Instance;
+use vulkano::image::{AttachmentImage, ImageDimensions, ImageUsage, ImmutableImage, StorageImage};
+
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
@@ -28,13 +26,13 @@ use vulkano::render_pass::{Framebuffer, Subpass};
 
 use vulkano::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::sync::GpuFuture;
-use vulkano::{render_pass, sync, VulkanLibrary};
+use vulkano::{render_pass, sync};
 
 use crate::controls::Camera;
 use crate::glm::Vec3;
 
 use crate::mesh::mtl::Material;
-use crate::mesh::{MeshData, MeshDataBuffs, VertexIndexed};
+use crate::mesh::{MeshData, MeshDataBuffs};
 
 use crate::vkrender::{fs, generate_uniforms, screenshot_dir, vs, VkVertex};
 
@@ -89,27 +87,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
     let (vertex_buffer, index_buffer) = mesh_buffs.to_buffers(&memory_allocator);
 
     let (frame_vertex_buffer, frame_index_buffer) = {
-        let mut frame_mesh = MeshData::new();
-        frame_mesh.add_vertex_pos(glm::vec3(0.0, 0.0, 0.0));
-        frame_mesh.add_vertex_pos(glm::vec3(1.0, 0.0, 0.0));
-        frame_mesh.add_vertex_pos(glm::vec3(1.0, 1.0, 0.0));
-        frame_mesh.add_vertex_pos(glm::vec3(0.0, 1.0, 0.0));
-
-        frame_mesh.add_vertex_uv(glm::vec2(0.0, 0.0));
-        frame_mesh.add_vertex_uv(glm::vec2(1.0, 0.0));
-        frame_mesh.add_vertex_uv(glm::vec2(1.0, 1.0));
-        frame_mesh.add_vertex_uv(glm::vec2(0.0, 1.0));
-
-        frame_mesh.add_vertex_normal(glm::vec3(0.0, 0.0, 1.0));
-
-        macro_rules! vindex {
-            ($idx:literal) => {
-                VertexIndexed {pos: $idx, tex: Some($idx), norm: Some(0)}
-            };
-        }
-        frame_mesh.add_tri([vindex!(0), vindex!(1), vindex!(3)]).unwrap();
-        frame_mesh.add_tri([vindex!(3), vindex!(1), vindex!(2)]).unwrap();
-
+        let frame_mesh = crate::mesh::primative::frame();
         Into::<MeshDataBuffs<VkVertex>>::into(frame_mesh).to_buffers(&memory_allocator)
     };
 
@@ -204,118 +182,119 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
     )
     .unwrap();
 
-        let depth_buffer_1 = ImageView::new_default(
-            AttachmentImage::transient(&memory_allocator, [dim.0, dim.1], Format::D16_UNORM)
-                .unwrap(),
+    let depth_buffer_1 = ImageView::new_default(
+        AttachmentImage::transient(&memory_allocator, [dim.0, dim.1], Format::D16_UNORM).unwrap(),
+    )
+    .unwrap();
+    let depth_buffer_2 = ImageView::new_default(
+        AttachmentImage::transient(&memory_allocator, [dim.0, dim.1], Format::D16_UNORM).unwrap(),
+    )
+    .unwrap();
+    let color_buffer_1 = ImageView::new_default(
+        AttachmentImage::with_usage(
+            &memory_allocator,
+            [dim.0, dim.1],
+            image_format,
+            ImageUsage::TRANSIENT_ATTACHMENT | ImageUsage::INPUT_ATTACHMENT,
         )
-        .unwrap();
-        let depth_buffer_2 = ImageView::new_default(
-            AttachmentImage::transient(&memory_allocator, [dim.0, dim.1], Format::D16_UNORM)
-                .unwrap(),
+        .unwrap(),
+    )
+    .unwrap();
+    let color_buffer_2 = ImageView::new_default(
+        AttachmentImage::with_usage(
+            &memory_allocator,
+            [dim.0, dim.1],
+            image_format,
+            ImageUsage::TRANSIENT_ATTACHMENT | ImageUsage::INPUT_ATTACHMENT,
         )
-        .unwrap();
-        let color_buffer_1 = ImageView::new_default(
-            AttachmentImage::with_usage(
-                &memory_allocator,
-                [dim.0, dim.1],
-                image_format,
-                ImageUsage::TRANSIENT_ATTACHMENT | ImageUsage::INPUT_ATTACHMENT,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let color_buffer_2 = ImageView::new_default(
-            AttachmentImage::with_usage(
-                &memory_allocator,
-                [dim.0, dim.1],
-                image_format,
-                ImageUsage::TRANSIENT_ATTACHMENT | ImageUsage::INPUT_ATTACHMENT,
-            )
-            .unwrap(),
-        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    let pipeline_1 = GraphicsPipeline::start()
+        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+        .vertex_input_state(VkVertex::per_vertex())
+        // list of triangles - I think this doesn't need to change for idx buf
+        .input_assembly_state(InputAssemblyState::new())
+        // entry point isn't necessarily main
+        .vertex_shader(vs_entry.clone(), ())
+        .fragment_shader(fs_entry.clone(), ())
+        .depth_stencil_state(DepthStencilState::simple_depth_test())
+        .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+            Viewport {
+                origin: [0.0, 0.0],
+                dimensions: [dim.0 as f32, dim.1 as f32],
+                depth_range: 0.0..1.0,
+            },
+        ]))
+        .build(memory_allocator.device().clone())
         .unwrap();
 
-        let pipeline_1 = GraphicsPipeline::start()
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-            .vertex_input_state(VkVertex::per_vertex())
-            // list of triangles - I think this doesn't need to change for idx buf
-            .input_assembly_state(InputAssemblyState::new())
-            // entry point isn't necessarily main
-            .vertex_shader(vs_entry.clone(), ())
-            .fragment_shader(fs_entry.clone(), ())
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-                Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [dim.0 as f32, dim.1 as f32],
-                    depth_range: 0.0..1.0,
-                },
-            ]))
-            .build(memory_allocator.device().clone())
-            .unwrap();
+    let pipeline_2 = GraphicsPipeline::start()
+        .render_pass(Subpass::from(render_pass.clone(), 1).unwrap())
+        .vertex_input_state(VkVertex::per_vertex())
+        // list of triangles - I think this doesn't need to change for idx buf
+        .input_assembly_state(InputAssemblyState::new())
+        // entry point isn't necessarily main
+        .vertex_shader(vs_entry.clone(), ())
+        .fragment_shader(fs_entry.clone(), ())
+        .depth_stencil_state(DepthStencilState::simple_depth_test())
+        .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+            Viewport {
+                origin: [0.0, 0.0],
+                dimensions: [dim.0 as f32, dim.1 as f32],
+                depth_range: 0.0..1.0,
+            },
+        ]))
+        .build(memory_allocator.device().clone())
+        .unwrap();
 
-        let pipeline_2 = GraphicsPipeline::start()
-            .render_pass(Subpass::from(render_pass.clone(), 1).unwrap())
-            .vertex_input_state(VkVertex::per_vertex())
-            // list of triangles - I think this doesn't need to change for idx buf
-            .input_assembly_state(InputAssemblyState::new())
-            // entry point isn't necessarily main
-            .vertex_shader(vs_entry.clone(), ())
-            .fragment_shader(fs_entry.clone(), ())
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-                Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [dim.0 as f32, dim.1 as f32],
-                    depth_range: 0.0..1.0,
-                },
-            ]))
-            .build(memory_allocator.device().clone())
-            .unwrap();
+    let pipeline_view = GraphicsPipeline::start()
+        .render_pass(Subpass::from(render_pass.clone(), 2).unwrap())
+        .vertex_input_state(VkVertex::per_vertex())
+        // list of triangles - I think this doesn't need to change for idx buf
+        .input_assembly_state(InputAssemblyState::new())
+        // entry point isn't necessarily main
+        .vertex_shader(vs_cmp_entry, ())
+        .fragment_shader(fs_cmp_entry, ())
+        .depth_stencil_state(DepthStencilState::disabled())
+        .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+            Viewport {
+                origin: [0.0, 0.0],
+                dimensions: [dim.0 as f32, dim.1 as f32],
+                depth_range: 0.0..1.0,
+            },
+        ]))
+        .build(memory_allocator.device().clone())
+        .unwrap();
 
-        let pipeline_view = GraphicsPipeline::start()
-            .render_pass(Subpass::from(render_pass.clone(), 2).unwrap())
-            .vertex_input_state(VkVertex::per_vertex())
-            // list of triangles - I think this doesn't need to change for idx buf
-            .input_assembly_state(InputAssemblyState::new())
-            // entry point isn't necessarily main
-            .vertex_shader(vs_cmp_entry, ())
-            .fragment_shader(fs_cmp_entry, ())
-            .depth_stencil_state(DepthStencilState::disabled())
-            .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-                Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [dim.0 as f32, dim.1 as f32],
-                    depth_range: 0.0..1.0,
-                },
-            ]))
-            .build(memory_allocator.device().clone())
-            .unwrap();
-
-        let framebuffer = {
-            let view = ImageView::new_default(image.clone()).unwrap();
-            Framebuffer::new(
-                render_pass,
-                render_pass::FramebufferCreateInfo {
-                    attachments: vec![
-                        view,
-                        color_buffer_1.clone(),
-                        color_buffer_2.clone(),
-                        depth_buffer_1,
-                        depth_buffer_2,
-                    ],
-                    ..Default::default()
-                },
-            )
-            .unwrap()
-        };
+    let framebuffer = {
+        let view = ImageView::new_default(image.clone()).unwrap();
+        Framebuffer::new(
+            render_pass,
+            render_pass::FramebufferCreateInfo {
+                attachments: vec![
+                    view,
+                    color_buffer_1.clone(),
+                    color_buffer_2.clone(),
+                    depth_buffer_1,
+                    depth_buffer_2,
+                ],
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
 
     let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
     let command_buffer_allocator =
         StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
     let sampler = Sampler::new(device.clone(), SamplerCreateInfo::simple_repeat_linear()).unwrap();
-    let tex_img = mesh_meta.material.diffuse_map().unwrap_or_else(|| Material::new_dev().diffuse_map().unwrap());
+    let tex_img = mesh_meta
+        .material
+        .diffuse_map()
+        .unwrap_or_else(|| Material::new_dev().diffuse_map().unwrap());
 
     // initialization done!
 
@@ -328,7 +307,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
             queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
-            .unwrap();
+        .unwrap();
 
         let texture = {
             let dimensions = ImageDimensions::Dim2d {
@@ -344,7 +323,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
                 Format::R8G8B8A8_SRGB,
                 &mut builder,
             )
-                .unwrap();
+            .unwrap();
 
             ImageView::new_default(image).unwrap()
         };
@@ -364,10 +343,15 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
                     (s_mat, vs::MAT_BINDING),
                     (s_mtl, fs::MTL_BINDING),
                     (s_light, fs::LIGHT_BINDING)
-                ).into_iter()
-                    .chain([WriteDescriptorSet::image_view_sampler(4, texture.clone(), sampler.clone())])
+                )
+                .into_iter()
+                .chain([WriteDescriptorSet::image_view_sampler(
+                    4,
+                    texture.clone(),
+                    sampler.clone(),
+                )]),
             )
-                .unwrap()
+            .unwrap()
         };
 
         let layout_2 = pipeline_2.layout().set_layouts().get(0).unwrap();
@@ -383,11 +367,15 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
                     (s_mat, vs::MAT_BINDING),
                     (s_mtl, fs::MTL_BINDING),
                     (s_light, fs::LIGHT_BINDING)
-                ).into_iter()
-                    .chain([WriteDescriptorSet::image_view_sampler(4, texture.clone(), sampler.clone())])
-,
+                )
+                .into_iter()
+                .chain([WriteDescriptorSet::image_view_sampler(
+                    4,
+                    texture.clone(),
+                    sampler.clone(),
+                )]),
             )
-                .unwrap()
+            .unwrap()
         };
 
         let layout_view = pipeline_view.layout().set_layouts().get(0).unwrap();
@@ -397,11 +385,11 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
                 layout_view.clone(),
                 [
                     WriteDescriptorSet::image_view(0, color_buffer_1.clone()),
-                    WriteDescriptorSet::image_view(1, color_buffer_2.clone())
-                ])
-                .unwrap()
+                    WriteDescriptorSet::image_view(1, color_buffer_2.clone()),
+                ],
+            )
+            .unwrap()
         };
-
 
         // we are allowed to not do a render pass if we use dynamic
         builder

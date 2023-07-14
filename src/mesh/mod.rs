@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 pub mod color;
 pub mod mtl;
+pub mod primative;
 mod tri;
 
 pub use glm::{Vec2, Vec3};

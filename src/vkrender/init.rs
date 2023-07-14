@@ -1,50 +1,19 @@
-use image::Rgba32FImage;
 use std::sync::Arc;
-use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
-use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage};
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
-use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo, RenderPassBeginInfo,
-    SubpassContents,
-};
-use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
-use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
-use vulkano::device::{
-    Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, Queue, QueueCreateInfo,
-    QueueFamilyProperties, QueueFlags,
-};
-use vulkano::format::Format;
-use vulkano::image::view::ImageView;
-use vulkano::image::{
-    AttachmentImage, ImageAccess, ImageDimensions, ImageUsage, ImmutableImage, StorageImage,
-    SwapchainImage,
-};
-use vulkano::instance::Instance;
-use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
-use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
-use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
-use vulkano::pipeline::graphics::vertex_input::{self, Vertex};
-use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
-use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
-use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
-use vulkano::sampler::{Sampler, SamplerCreateInfo};
-use vulkano::shader::ShaderModule;
-use vulkano::swapchain::{
-    acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
-    SwapchainCreationError, SwapchainPresentInfo,
-};
-use vulkano::sync::{FlushError, GpuFuture};
-use vulkano::{render_pass, sync, VulkanLibrary};
-use vulkano_win::VkSurfaceBuild;
-use winit::event::{DeviceEvent, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::{Window, WindowBuilder};
 
-use crate::controls::{mouse_move, Camera};
-use crate::glm::Vec3;
-use crate::mesh::mtl::Material;
-use crate::mesh::{self, MeshData, MeshDataBuffs, MeshMeta};
+use vulkano::device::physical::PhysicalDeviceType;
+use vulkano::device::{
+    Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags,
+};
+
+use vulkano::instance::Instance;
+
+use vulkano::swapchain::Surface;
+
+use vulkano::VulkanLibrary;
+use vulkano_win::VkSurfaceBuild;
+
+use winit::event_loop::EventLoop;
+use winit::window::WindowBuilder;
 
 /// initialize the device to use for rendering that supports necessary extensions with a surface.
 pub fn initialize_device_window(

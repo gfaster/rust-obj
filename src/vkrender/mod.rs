@@ -12,18 +12,15 @@ use vulkano::command_buffer::{
 };
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
-use vulkano::device::{
-    Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned, Queue, QueueCreateInfo,
-    QueueFamilyProperties, QueueFlags,
-};
+
+use vulkano::device::{DeviceExtensions, DeviceOwned};
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
 use vulkano::image::{
     AttachmentImage, ImageAccess, ImageDimensions, ImageUsage, ImmutableImage, StorageImage,
     SwapchainImage,
 };
-use vulkano::instance::Instance;
+
 use vulkano::memory::allocator::{
     AllocationCreateInfo, MemoryAllocator, MemoryUsage, StandardMemoryAllocator,
 };
@@ -36,15 +33,15 @@ use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 use vulkano::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{
-    acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
-    SwapchainCreationError, SwapchainPresentInfo,
+    acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
+    SwapchainPresentInfo,
 };
 use vulkano::sync::{FlushError, GpuFuture};
-use vulkano::{render_pass, sync, VulkanLibrary};
-use vulkano_win::VkSurfaceBuild;
+use vulkano::{render_pass, sync};
+
 use winit::event::{DeviceEvent, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::{Window, WindowBuilder};
+use winit::event_loop::ControlFlow;
+use winit::window::Window;
 
 use crate::controls::{mouse_move, Camera};
 use crate::glm::Vec3;
