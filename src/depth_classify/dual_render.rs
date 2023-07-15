@@ -34,7 +34,7 @@ use crate::glm::Vec3;
 use crate::mesh::mtl::Material;
 use crate::mesh::{MeshData, MeshDataBuffs};
 
-use crate::vkrender::{fs, generate_uniforms, screenshot_dir, vs, VkVertex};
+use crate::vkrender::{ screenshot_dir,  VkVertex};
 
 macro_rules! gen_write_descriptors {
     ($uniform:ident, $(($data:expr, $binding:expr)),*) => {
@@ -56,7 +56,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
     // This example has some relevant information for offscreen rendering and saving
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/msaa-renderpass.rs
 
-    let mut cam = Camera::new();
+    let mut cam = Camera::new(dim.0 as f32 / dim.1 as f32);
 
     let device_extensions = DeviceExtensions {
         khr_storage_buffer_storage_class: true,
@@ -116,10 +116,6 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
         },
     );
 
-    let vs = vs::load(device.clone()).unwrap();
-    let vs_entry = vs.entry_point("main").unwrap();
-    let fs = fs::load(device.clone()).unwrap();
-    let fs_entry = fs.entry_point("main").unwrap();
     let fs_cmp = cmp_fs::load(device.clone()).unwrap();
     let fs_cmp_entry = fs_cmp.entry_point("main").unwrap();
     let vs_cmp = cmp_vs::load(device.clone()).unwrap();

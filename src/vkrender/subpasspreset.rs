@@ -7,19 +7,25 @@
 //!
 //! I'm making separate structs for this instead of a trait because of how different they are
 
+use std::cell::Cell;
 use std::sync::Arc;
-use vulkano::buffer::allocator::SubbufferAllocator;
+use vulkano::buffer::BufferUsage;
+use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
-    SecondaryAutoCommandBuffer,
+    SecondaryAutoCommandBuffer, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
 };
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
+use vulkano::format::Format;
+use vulkano::image::{ImageDimensions, ImmutableImage};
+use vulkano::image::view::ImageView;
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::vertex_input::Vertex;
 use vulkano::pipeline::graphics::{input_assembly::InputAssemblyState, viewport::Viewport};
 use vulkano::pipeline::Pipeline;
 use vulkano::pipeline::PipelineBindPoint;
 
+use vulkano::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::{
     buffer::Subbuffer,
     command_buffer::allocator::StandardCommandBufferAllocator,
@@ -49,16 +55,25 @@ use super::VkVertex;
 /// Stretch goal: https://www.nvidia.com/content/GTC-2010/pdfs/2152_GTC2010.pdf
 pub struct ObjectSystem<Allocator>
 where
-    Allocator: MemoryAllocator,
+    Arc<Allocator>: MemoryAllocator,
 {
     objects: Vec<Option<ObjectInstance>>,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
+
+    /// command buffer for textures that need to be uploaded to the GPU. uploading happens on draw,
+    /// if there are any pending
+    upload_cmdbuf: Cell<Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>>>,
+
+    /// various necessary vulkano components
+    gfx_queue: Arc<Queue>,
     cmdbuf_allocator: Arc<StandardCommandBufferAllocator>,
     descset_allocator: Arc<StandardDescriptorSetAllocator>,
-    uniform_allocator: SubbufferAllocator,
     memory_allocator: Arc<Allocator>,
-    gfx_queue: Arc<Queue>,
+    
+    /// the subbuffer allocator is owned because I think it may be better for reducing
+    /// fragmentation
+    uniform_allocator: SubbufferAllocator<Arc<Allocator>>,
 }
 
 macro_rules! subbuffer_write_descriptors {
@@ -74,19 +89,23 @@ macro_rules! subbuffer_write_descriptors {
 
 impl<Allocator> ObjectSystem<Allocator>
 where
-    Allocator: MemoryAllocator,
+    Arc<Allocator>: MemoryAllocator
 {
-    fn new(
+    pub fn new(
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
         dimensions: [f32; 2],
         memory_allocator: Arc<Allocator>,
         command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
         descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-        subbuffer_allocator: SubbufferAllocator,
     ) -> Self {
         let vs = vs::load(gfx_queue.device().clone()).unwrap();
         let fs = fs::load(gfx_queue.device().clone()).unwrap();
+
+        let subbuffer_allocator = SubbufferAllocator::new(memory_allocator.clone(), SubbufferAllocatorCreateInfo {
+            buffer_usage: BufferUsage::UNIFORM_BUFFER,
+            ..Default::default()
+        });
 
         let pipeline = GraphicsPipeline::start()
             .render_pass(subpass.clone())
@@ -102,8 +121,9 @@ where
                 },
             ]))
             .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .build(memory_allocator.device().clone())
+            .build(gfx_queue.device().clone())
             .unwrap();
+
 
         Self {
             objects: Vec::new(),
@@ -114,14 +134,17 @@ where
             memory_allocator,
             gfx_queue,
             uniform_allocator: subbuffer_allocator,
+            upload_cmdbuf: None.into(),
         }
     }
 
-    fn draw(&self, cam: &Camera) -> SecondaryAutoCommandBuffer {
+    pub fn draw(&self, cam: &Camera) -> SecondaryAutoCommandBuffer {
+        let layout_0 = self.pipeline.layout().set_layouts().get(0).unwrap().clone();
+        let layout_1 = self.pipeline.layout().set_layouts().get(1).unwrap().clone();
         let (s_cam, s_light) = generate_uniforms_0(cam);
         let set_0 = PersistentDescriptorSet::new(
             &self.descset_allocator,
-            self.pipeline.layout().set_layouts().get(0).unwrap().clone(),
+            layout_0,
             subbuffer_write_descriptors! {
                 self.uniform_allocator,
                 (s_cam, vs::CAM_BINDING),
@@ -129,6 +152,11 @@ where
             },
         )
         .unwrap();
+
+        self.upload_cmdbuf.take().map(|c| c.build().unwrap().execute(self.gfx_queue.clone()));
+
+        let sampler =
+            Sampler::new(self.gfx_queue.device().clone(), SamplerCreateInfo::simple_repeat_linear()).unwrap();
 
         let mut builder = AutoCommandBufferBuilder::secondary(
             &self.cmdbuf_allocator,
@@ -150,37 +178,95 @@ where
                 set_0,
             );
 
-        for object in self.objects.iter().filter_map(|x| *x) {
+        for object in self.objects.iter().filter_map(|x| x.as_ref()) {
             let (s_mat, s_mtl) = generate_uniforms_1(&object.meta);
             let set_1 = PersistentDescriptorSet::new(
                 &self.descset_allocator,
-                self.pipeline.layout().set_layouts().get(0).unwrap().clone(),
+                layout_1.clone(),
                 subbuffer_write_descriptors! {
                     self.uniform_allocator,
                     (s_mat, vs::MAT_BINDING),
                     (s_mtl, fs::MTL_BINDING)
-                },
+                }.into_iter()
+                    .chain([WriteDescriptorSet::image_view_sampler(4, object.texture.clone(), sampler.clone())]),
             )
             .unwrap();
 
             builder
-                .bind_vertex_buffers(0, object.vertices)
-                .bind_index_buffer(object.indices)
+                .bind_descriptor_sets(PipelineBindPoint::Graphics, self.pipeline.layout().clone(), 1, set_1)
+                .bind_vertex_buffers(0, object.vertices.clone())
+                .bind_index_buffer(object.indices.clone())
                 .draw_indexed(object.indices.len() as u32, 1, 0, 0, 0)
                 .unwrap();
         }
         builder.build().unwrap()
     }
 
-    fn register_object(&mut self, object: MeshData, transform: glm::Mat4) {
+    pub fn regenerate(&mut self, dimensions: [f32; 2]) {
+        let vs = vs::load(self.gfx_queue.device().clone()).unwrap();
+        let fs = fs::load(self.gfx_queue.device().clone()).unwrap();
+
+        let pipeline = GraphicsPipeline::start()
+            .render_pass(self.subpass.clone())
+            .vertex_input_state(VkVertex::per_vertex())
+            .input_assembly_state(InputAssemblyState::new())
+            .vertex_shader(vs.entry_point("main").unwrap(), ())
+            .fragment_shader(fs.entry_point("main").unwrap(), ())
+            .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+                Viewport {
+                    origin: [0.0, 0.0],
+                    dimensions,
+                    depth_range: 0.0..1.0,
+                },
+            ]))
+            .depth_stencil_state(DepthStencilState::simple_depth_test())
+            .build(self.gfx_queue.device().clone())
+            .unwrap();
+
+        self.pipeline = pipeline;
+    }
+
+    pub fn register_object(&mut self, object: MeshData, transform: glm::Mat4) {
         let meta = object.get_meta();
         let mesh_buffs: MeshDataBuffs<VkVertex> = object.into();
-        let (vertices, indices) = mesh_buffs.to_buffers(self.memory_allocator.as_ref());
+        let (vertices, indices) = mesh_buffs.to_buffers(&self.memory_allocator);
+
+        let texture = {
+            // take because lifetimes are annoying here
+            let mut upload = self.upload_cmdbuf.take().unwrap_or_else(|| 
+                AutoCommandBufferBuilder::primary(
+                    &self.cmdbuf_allocator, 
+                    self.gfx_queue.queue_family_index(), 
+                    CommandBufferUsage::OneTimeSubmit).unwrap()
+            );
+
+            let img = meta.material.diffuse_map().unwrap();
+            let dimensions = ImageDimensions::Dim2d {
+                width: img.width(),
+                height: img.height(),
+                array_layers: 1,
+            };
+            let image = ImmutableImage::from_iter(
+                &self.memory_allocator,
+                img.as_raw().clone(),
+                dimensions,
+                vulkano::image::MipmapsCount::Log2,
+                Format::R8G8B8A8_SRGB,
+                &mut upload
+            )
+            .unwrap();
+
+            self.upload_cmdbuf = Some(upload).into();
+
+            ImageView::new_default(image).unwrap()
+        };
+
         self.objects.push(Some(ObjectInstance {
             vertices,
             indices,
             meta,
             transform,
+            texture
         }));
     }
 }
@@ -189,6 +275,7 @@ struct ObjectInstance {
     vertices: Subbuffer<[VkVertex]>,
     indices: Subbuffer<[u32]>,
     meta: MeshMeta,
+    texture: Arc<ImageView<ImmutableImage>>,
     transform: glm::Mat4,
 }
 

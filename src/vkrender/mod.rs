@@ -49,6 +49,7 @@ use crate::glm::Vec3;
 use crate::mesh::mtl::Material;
 use crate::mesh::{self, MeshData, MeshDataBuffs, MeshMeta};
 use crate::vkrender::init::initialize_device;
+use crate::vkrender::subpasspreset::ObjectSystem;
 
 pub mod consts {
     use nalgebra::ArrayStorage;
@@ -122,17 +123,6 @@ impl MeshDataBuffs<VkVertex> {
     }
 }
 
-macro_rules! subbuffer_write_descriptors {
-    ($uniform:ident, $(($data:expr, $binding:expr)),*) => {
-        [ $( {
-            let subbuffer = $uniform.allocate_sized().unwrap();
-            *subbuffer.write().unwrap() = $data;
-            WriteDescriptorSet::buffer(
-                $binding, subbuffer)
-        }, )* ]
-    }
-}
-
 pub fn display_model(m: mesh::MeshData) {
     // I'm using the Vulkano examples to learn here
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/triangle.rs
@@ -185,24 +175,9 @@ pub fn display_model(m: mesh::MeshData) {
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-    let mut cam = Camera::new();
+    let mut cam = Camera::new(1.0);
 
-    let mesh_meta = m.get_meta();
-    let mesh_buffs: MeshDataBuffs<VkVertex> = m.into();
-    let (vertex_buffer, index_buffer) = mesh_buffs.to_buffers(&memory_allocator);
 
-    let uniform_buffer = SubbufferAllocator::new(
-        memory_allocator.clone(),
-        SubbufferAllocatorCreateInfo {
-            buffer_usage: BufferUsage::UNIFORM_BUFFER,
-            ..Default::default()
-        },
-    );
-
-    let vs = vs::load(device.clone()).unwrap();
-    let fs = fs::load(device.clone()).unwrap();
-
-    // now to initialize the pipelines - this is completely foreign to opengl
     let render_pass = vulkano::single_pass_renderpass!(
     device.clone(),
         attachments: {
@@ -228,24 +203,36 @@ pub fn display_model(m: mesh::MeshData) {
     )
     .unwrap();
 
+    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
+    let command_buffer_allocator =
+        Arc::new(StandardCommandBufferAllocator::new(device.clone(), Default::default()));
+
+    // TODO: creating an object system creates the pipeline and the initialize_based_on_window call
+    // regenerates it
+    let mut object_system = ObjectSystem::new(
+        queue.clone(),
+        Subpass::from(render_pass.clone(), 0).unwrap(),
+        [0.0, 0.0],
+        memory_allocator.clone(),
+        command_buffer_allocator.clone(),
+        descriptor_set_allocator.clone(),
+    );
+
+    object_system.register_object(m, glm::Mat4::identity());
+
     let mut viewport = Viewport {
         origin: [0.0, 0.0],
         dimensions: [0.0, 0.0],
         depth_range: 0.0..1.0,
     };
 
-    let (mut pipeline, mut framebuffers) = initialize_based_on_window(
+    let mut framebuffers = initialize_based_on_window(
         &memory_allocator,
         &images,
-        &vs,
-        &fs,
         render_pass.clone(),
-        &mut viewport,
+        &mut object_system,
+        &mut viewport
     );
-
-    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
-    let command_buffer_allocator =
-        StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
     // initialization done!
 
@@ -303,35 +290,17 @@ pub fn display_model(m: mesh::MeshData) {
 
                     swapchain = new_swapchain;
 
-                    let (new_pipeline, new_framebuffers) = initialize_based_on_window(
+                    let new_framebuffers = initialize_based_on_window(
                         &memory_allocator,
                         &new_images,
-                        &vs,
-                        &fs,
                         render_pass.clone(),
-                        &mut viewport,
+                        &mut object_system,
+                        &mut viewport
                     );
-                    pipeline = new_pipeline;
                     framebuffers = new_framebuffers;
                     recreate_swapchain = false;
                 }
 
-                let aspect = viewport.dimensions[0] / viewport.dimensions[1];
-                let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
-                let layout = pipeline.layout().set_layouts().get(0).unwrap();
-
-                let set = PersistentDescriptorSet::new(
-                    &descriptor_set_allocator,
-                    layout.clone(),
-                    subbuffer_write_descriptors! {
-                        uniform_buffer,
-                        (s_cam, vs::CAM_BINDING),
-                        (s_mat, vs::MAT_BINDING),
-                        (s_mtl, fs::MTL_BINDING),
-                        (s_light, fs::LIGHT_BINDING)
-                    },
-                )
-                .unwrap();
 
                 // need to acquire image before drawing, blocks if it's not ready yet (too many
                 // commands), so it has optional timeout
@@ -367,23 +336,15 @@ pub fn display_model(m: mesh::MeshData) {
                                 framebuffers[image_index as usize].clone(),
                             )
                         },
-                        SubpassContents::Inline,
+                        SubpassContents::SecondaryCommandBuffers,
                     )
                     .unwrap()
-                    .set_viewport(0, [viewport.clone()])
-                    .bind_pipeline_graphics(pipeline.clone())
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        pipeline.layout().clone(),
-                        0,
-                        set,
-                    )
-                    .bind_vertex_buffers(0, vertex_buffer.clone())
-                    .bind_index_buffer(index_buffer.clone())
-                    .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-                    .unwrap()
+                    .set_viewport(0, [viewport.clone()]);
+
+                builder.execute_commands(object_system.draw(&cam)).unwrap();
+
                     // additional passes would go here
-                    .end_render_pass()
+                builder.end_render_pass()
                     .unwrap();
 
                 let command_buffer = builder.build().unwrap();
@@ -421,38 +382,26 @@ pub fn display_model(m: mesh::MeshData) {
 fn initialize_based_on_window(
     memory_allocator: &StandardMemoryAllocator,
     images: &[Arc<SwapchainImage>],
-    vs: &ShaderModule,
-    fs: &ShaderModule,
     render_pass: Arc<RenderPass>,
+    object_system: &mut ObjectSystem<StandardMemoryAllocator>,
     viewport: &mut Viewport,
-) -> (Arc<GraphicsPipeline>, Vec<Arc<Framebuffer>>) {
-    let dimensions = images[0].dimensions().width_height();
-    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+) -> Vec<Arc<Framebuffer>> {
+
+    let dimensions_u32 = images[0].dimensions().width_height();
+    let dimensions = [dimensions_u32[0] as f32, dimensions_u32[1] as f32];
+
+    *viewport = Viewport {
+        origin: [0.0, 0.0],
+        dimensions,
+        depth_range: 0.0..1.0
+    };
+
+    object_system.regenerate(dimensions);
 
     let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(memory_allocator, dimensions, Format::D16_UNORM).unwrap(),
+        AttachmentImage::transient(memory_allocator, dimensions_u32, Format::D16_UNORM).unwrap(),
     )
     .unwrap();
-
-    let pipeline = GraphicsPipeline::start()
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-        .vertex_input_state(VkVertex::per_vertex())
-        // list of triangles - I think this doesn't need to change for idx buf
-        .input_assembly_state(InputAssemblyState::new())
-        // entry point isn't necessarily main
-        .vertex_shader(vs.entry_point("main").unwrap(), ())
-        .fragment_shader(fs.entry_point("main").unwrap(), ())
-        // resizable window
-        .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-            Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-                depth_range: 0.0..1.0,
-            },
-        ]))
-        .depth_stencil_state(DepthStencilState::simple_depth_test())
-        .build(memory_allocator.device().clone())
-        .unwrap();
 
     let framebuffers = images
         .iter()
@@ -469,7 +418,7 @@ fn initialize_based_on_window(
         })
         .collect::<Vec<_>>();
 
-    (pipeline, framebuffers)
+    framebuffers
 }
 
 pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<String> {
@@ -507,9 +456,6 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     )
     .unwrap();
 
-    let mesh_meta = m.get_meta();
-    let mesh_buffs: MeshDataBuffs<VkVertex> = m.into();
-    let (vertex_buffer, index_buffer) = mesh_buffs.to_buffers(&memory_allocator);
 
     let transfer_buffer = Buffer::from_iter(
         &memory_allocator,
@@ -528,18 +474,6 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     )
     .unwrap();
 
-    let uniform_buffer = SubbufferAllocator::new(
-        memory_allocator.clone(),
-        SubbufferAllocatorCreateInfo {
-            buffer_usage: BufferUsage::UNIFORM_BUFFER,
-            ..Default::default()
-        },
-    );
-
-    let vs = vs::load(device.clone()).unwrap();
-    let vs_entry = vs.entry_point("main").unwrap();
-    let fs = fs::load(device.clone()).unwrap();
-    let fs_entry = fs.entry_point("main").unwrap();
 
     let render_pass = vulkano::single_pass_renderpass!(
         device.clone(),
@@ -566,56 +500,47 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     )
     .unwrap();
 
-    let (pipeline, framebuffer) = {
+    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
+    let command_buffer_allocator =
+        Arc::new(StandardCommandBufferAllocator::new(device.clone(), Default::default()));
+
+    let object_subpass = Subpass::from(render_pass.clone(), 0).unwrap();
+    let mut object_system = ObjectSystem::new(
+        queue.clone(), 
+        object_subpass, 
+        [dim.0 as f32, dim.1 as f32],
+        memory_allocator.clone(), 
+        command_buffer_allocator.clone(), 
+        descriptor_set_allocator.clone()
+    );
+
+    object_system.register_object(m, glm::identity());
+
+    let framebuffer = {
         let depth_buffer = ImageView::new_default(
             AttachmentImage::transient(&memory_allocator, [dim.0, dim.1], Format::D16_UNORM)
                 .unwrap(),
         )
-        .unwrap();
-
-        let pipeline = GraphicsPipeline::start()
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-            .vertex_input_state(VkVertex::per_vertex())
-            // list of triangles - I think this doesn't need to change for idx buf
-            .input_assembly_state(InputAssemblyState::new())
-            // entry point isn't necessarily main
-            .vertex_shader(vs_entry, ())
-            .fragment_shader(fs_entry, ())
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-                Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [dim.0 as f32, dim.1 as f32],
-                    depth_range: 0.0..1.0,
-                },
-            ]))
-            .build(memory_allocator.device().clone())
             .unwrap();
 
-        let framebuffer = {
-            let view = ImageView::new_default(image.clone()).unwrap();
-            Framebuffer::new(
-                render_pass,
-                render_pass::FramebufferCreateInfo {
-                    attachments: vec![view, depth_buffer],
-                    ..Default::default()
-                },
-            )
-            .unwrap()
-        };
-        (pipeline, framebuffer)
-    };
 
-    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
-    let command_buffer_allocator =
-        StandardCommandBufferAllocator::new(device.clone(), Default::default());
+        let view = ImageView::new_default(image.clone()).unwrap();
+        Framebuffer::new(
+            render_pass,
+            render_pass::FramebufferCreateInfo {
+                attachments: vec![view, depth_buffer],
+                ..Default::default()
+            },
+        )
+            .unwrap()
+    };
 
     // initialization done!
 
     let screenshot_format = image::ImageFormat::OpenExr;
     let dir = screenshot_dir().unwrap();
     let mut ret = vec![];
-    let mut cam = Camera::new();
+    let mut cam = Camera::new(dim.0 as f32 / dim.1 as f32);
     for (img_num, pos) in pos.iter().enumerate() {
         cam.pos = *pos;
 
@@ -623,46 +548,6 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
             &command_buffer_allocator,
             queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-        let texture = {
-            let img = mesh_meta.material.diffuse_map().unwrap();
-            let dimensions = ImageDimensions::Dim2d {
-                width: img.width(),
-                height: img.height(),
-                array_layers: 1,
-            };
-            let image = ImmutableImage::from_iter(
-                &memory_allocator,
-                img.as_raw().clone(),
-                dimensions,
-                vulkano::image::MipmapsCount::Log2,
-                Format::R8G8B8A8_SRGB,
-                &mut builder,
-            )
-            .unwrap();
-
-            ImageView::new_default(image).unwrap()
-        };
-        let sampler =
-            Sampler::new(device.clone(), SamplerCreateInfo::simple_repeat_linear()).unwrap();
-
-        let aspect = dim.0 as f32 / dim.1 as f32;
-        let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
-        let layout = pipeline.layout().set_layouts().get(0).unwrap();
-
-        let set = PersistentDescriptorSet::new(
-            &descriptor_set_allocator,
-            layout.clone(),
-            subbuffer_write_descriptors! {
-                uniform_buffer,
-                (s_cam, vs::CAM_BINDING),
-                (s_mat, vs::MAT_BINDING),
-                (s_mtl, fs::MTL_BINDING),
-                (s_light, fs::LIGHT_BINDING)
-            }
-            .into_iter()
-            .chain([WriteDescriptorSet::image_view_sampler(4, texture, sampler)]),
         )
         .unwrap();
 
@@ -673,20 +558,13 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
                     clear_values: vec![Some([1.0, 1.0, 1.0, 1.0].into()), Some(1.0.into())],
                     ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
                 },
-                SubpassContents::Inline,
+                SubpassContents::SecondaryCommandBuffers,
             )
-            .unwrap()
-            .bind_pipeline_graphics(pipeline.clone())
-            .bind_descriptor_sets(
-                PipelineBindPoint::Graphics,
-                pipeline.layout().clone(),
-                0,
-                set,
-            )
-            .bind_vertex_buffers(0, vertex_buffer.clone())
-            .bind_index_buffer(index_buffer.clone())
-            .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-            .unwrap()
+            .unwrap();
+
+        builder.execute_commands(object_system.draw(&cam)).unwrap();
+
+        builder
             .end_render_pass()
             .unwrap()
             .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
