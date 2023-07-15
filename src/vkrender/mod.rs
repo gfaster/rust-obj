@@ -1,4 +1,5 @@
 pub mod init;
+pub mod subpasspreset;
 
 use std::sync::Arc;
 
@@ -416,89 +417,6 @@ pub fn display_model(m: mesh::MeshData) {
         }
     });
 }
-pub mod vs {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "shaders/vert_vk.glsl",
-        linalg_type: "nalgebra",
-    }
-
-    // TODO: this might be revealed after entry point is added
-    pub const MAT_BINDING: u32 = 0;
-    pub const CAM_BINDING: u32 = 1;
-}
-pub mod fs {
-    use super::Material;
-
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        path: "shaders/frag_vk.glsl",
-        linalg_type: "nalgebra"
-    }
-
-    // TODO: this might be revealed after entry point is added
-    pub const MTL_BINDING: u32 = 2;
-    pub const LIGHT_BINDING: u32 = 3;
-
-    // declaration of ShaderMtl from macro parsing of frag_vk.glsl
-    impl From<Material> for ShaderMtl {
-        fn from(value: Material) -> Self {
-            ShaderMtl {
-                base_diffuse: value.diffuse().into(),
-                base_ambient: value.ambient().into(),
-                base_specular: value.specular().into(),
-                base_specular_factor: value.base_specular_factor(),
-            }
-        }
-    }
-}
-
-pub fn generate_uniforms(
-    meta: &MeshMeta,
-    cam: &Camera,
-    aspect: f32,
-) -> (
-    vs::ShaderCamAttr,
-    vs::ShaderMatBuffer,
-    fs::ShaderMtl,
-    fs::ShaderLight,
-) {
-    let near = 1.0;
-    let far = 4.0;
-    let scale = 1.5 / meta.normalize_factor;
-    let center = meta.centroid;
-    let projection_matrix = glm::perspective(aspect, 1.0, near, far);
-    let transform = glm::Mat4::from([
-        [scale, 0.0, 0.0, 0.0],
-        [0.0, scale, 0.0, 0.0],
-        [0.0, 0.0, scale, 0.0],
-        [0.0, 0.0, 0.0, 1.0f32],
-    ]) * glm::Mat4::from([
-        [-1.0, 0.0, 0.0, 0.0],
-        [0.0, -1.0, 0.0, 0.0],
-        [0.0, 0.0, -1.0, 0.0],
-        [center.x, center.y, center.z, 1.0],
-    ]);
-
-    let modelview = cam.get_transform() * transform;
-
-    let normal_matrix = glm::transpose(&glm::inverse(&transform));
-
-    let cam_attr = vs::ShaderCamAttr { near, far };
-
-    let mat = vs::ShaderMatBuffer {
-        transform,
-        modelview,
-        projection_matrix,
-        normal_matrix,
-    };
-
-    let mtl = meta.material.clone().into();
-
-    let light = fs::ShaderLight { light_pos: cam.pos };
-
-    (cam_attr, mat, mtl, light)
-}
 
 fn initialize_based_on_window(
     memory_allocator: &StandardMemoryAllocator,
@@ -532,7 +450,6 @@ fn initialize_based_on_window(
                 depth_range: 0.0..1.0,
             },
         ]))
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .build(memory_allocator.device().clone())
         .unwrap();

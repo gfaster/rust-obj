@@ -216,7 +216,6 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
         .vertex_input_state(VkVertex::per_vertex())
         // list of triangles - I think this doesn't need to change for idx buf
         .input_assembly_state(InputAssemblyState::new())
-        // entry point isn't necessarily main
         .vertex_shader(vs_entry.clone(), ())
         .fragment_shader(fs_entry.clone(), ())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
@@ -235,7 +234,6 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
         .vertex_input_state(VkVertex::per_vertex())
         // list of triangles - I think this doesn't need to change for idx buf
         .input_assembly_state(InputAssemblyState::new())
-        // entry point isn't necessarily main
         .vertex_shader(vs_entry.clone(), ())
         .fragment_shader(fs_entry.clone(), ())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
@@ -254,7 +252,6 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
         .vertex_input_state(VkVertex::per_vertex())
         // list of triangles - I think this doesn't need to change for idx buf
         .input_assembly_state(InputAssemblyState::new())
-        // entry point isn't necessarily main
         .vertex_shader(vs_cmp_entry, ())
         .fragment_shader(fs_cmp_entry, ())
         .depth_stencil_state(DepthStencilState::disabled())

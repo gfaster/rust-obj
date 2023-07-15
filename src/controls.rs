@@ -6,13 +6,15 @@ use glm::{Mat4, Vec2, Vec3};
 pub struct Camera {
     pub pos: Vec3,
     pub target: Vec3,
+    pub aspect: f32,
 }
 
 impl Camera {
-    pub fn new() -> Self {
+    pub fn new(aspect: f32) -> Self {
         Self {
             pos: [0.0, 0.0, 3.0].into(),
             target: [0.0, 0.0, 0.0].into(),
+            aspect,
         }
     }
 
@@ -42,12 +44,6 @@ impl Camera {
         let new_rel_pos = glm::rotate_vec3(&rel_pos, angle, &normal);
         // let new_rel_pos = glm::rotate_y_vec3(&self.relative_pos(), delta.x);
         self.pos = self.target + new_rel_pos;
-    }
-}
-
-impl Default for Camera {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -13,15 +13,15 @@ layout(location = 3) out float v_depth;
 
 
 // rust structs are generated from this struct name
-layout(set = 0, binding = 0) uniform ShaderMatBuffer {
+layout(set = 1, binding = 0) uniform ShaderMatBuffer {
   mat4 transform;
-  mat4 modelview;
-  mat4 projection_matrix;
   mat4 normal_matrix;
 } Matrices;
 
 // rust structs are generated from this struct name
 layout(set = 0, binding = 1) uniform ShaderCamAttr {
+  mat4 projection_matrix;
+  mat4 transform;
   float near;
   float far;
 } CamAttr;
@@ -30,10 +30,12 @@ void main()
 {
   vec4 pos = vec4(position, 1.0f);
 
+  mat4 modelview = CamAttr.transform * Matrices.transform;
+
   v_fragNorm = normalize(Matrices.normal_matrix * vec4(normal, 1.0)).xyz;
   v_fragPos = vec3(Matrices.transform * pos);
   v_texCoord = tex;
 
-  gl_Position = Matrices.projection_matrix * Matrices.modelview * pos;
+  gl_Position = CamAttr.projection_matrix * modelview * pos;
   v_depth = gl_Position.z / CamAttr.far;
 }
