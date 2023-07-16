@@ -32,7 +32,9 @@ fn main() {
 
     // renderer::display_model(obj);
     // screenshots(obj);
-    screenshots_compare(obj);
+    // screenshots_compare(obj);
+    let orbit_amt = glm::vec2(0.1, 0.0);
+    depth_classify::dual_render::display_duel_render(obj, orbit_amt);
 }
 
 fn screenshots(obj: mesh::MeshData) {

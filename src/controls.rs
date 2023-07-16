@@ -3,6 +3,7 @@ use crate::glm;
 use crate::renderer::consts::*;
 use glm::{Mat4, Vec2, Vec3};
 
+#[derive(Clone, Copy)]
 pub struct Camera {
     pub pos: Vec3,
     pub target: Vec3,

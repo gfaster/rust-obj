@@ -47,7 +47,7 @@ use super::super::VkVertex;
 
 #[derive(Default)]
 pub struct ObjectSystemConfig {
-    blend_mode: ColorBlendState
+    blend_mode: ColorBlendState,
 }
 
 /// Basic rendering of an object
@@ -110,8 +110,15 @@ where
         command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
         descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     ) -> Self {
-
-        Self::new_with_config(Default::default(), gfx_queue, subpass, dimensions, memory_allocator, command_buffer_allocator, descriptor_set_allocator)
+        Self::new_with_config(
+            Default::default(),
+            gfx_queue,
+            subpass,
+            dimensions,
+            memory_allocator,
+            command_buffer_allocator,
+            descriptor_set_allocator,
+        )
     }
 
     pub fn new_with_config(
@@ -200,7 +207,6 @@ where
             },
         )
         .unwrap();
-
 
         builder
             .bind_pipeline_graphics(self.pipeline.clone())
