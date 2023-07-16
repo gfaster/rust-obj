@@ -93,7 +93,7 @@ pub struct MeshData {
     vt: Vec<glm::Vec2>,
     f: Vec<VertexIndexed>,
 
-    material: Material,
+    materials: Vec<(u32, Material)>,
 
     running_center: Vec3,
     running_volume: f32,
@@ -103,7 +103,7 @@ pub struct MeshData {
 pub struct MeshMeta {
     pub centroid: Vec3,
     pub normalize_factor: f32,
-    pub material: Material,
+    pub materials: Vec<(u32, Material)>, 
 }
 
 #[derive(Debug)]
@@ -131,7 +131,7 @@ impl MeshData {
             vt: vec![],
             f: vec![],
 
-            material: Material::new(),
+            materials: Vec::new(),
 
             running_center: Vec3::from([0.0, 0.0, 0.0]),
             running_volume: 0.0,
@@ -144,7 +144,7 @@ impl MeshData {
         MeshMeta {
             centroid: self.centroid(),
             normalize_factor: self.normalize_factor(),
-            material: self.material.clone(),
+            materials: self.materials.clone(),
         }
     }
 
@@ -154,7 +154,7 @@ impl MeshData {
         MeshMeta {
             centroid: self.centroid(),
             normalize_factor: self.normalize_factor(),
-            material: std::mem::take(&mut self.material),
+            materials: std::mem::take(&mut self.materials),
         }
     }
 
@@ -226,17 +226,16 @@ impl MeshData {
         })
     }
 
-    pub fn material(&self) -> &Material {
-        &self.material
+    pub fn materials(&self) -> &[(u32, Material)] {
+        &self.materials
     }
 
-    pub fn material_mut(&mut self) -> &mut Material {
-        &mut self.material
+    pub fn material_mut(&mut self) -> &mut [(u32, Material)] {
+        &mut self.materials
     }
 
-    /// object can only have one material - this leads to various issues, but is generally fine
-    pub fn set_material(&mut self, material: Material) {
-        self.material = material
+    pub fn set_material(&mut self, mat: Material) {
+        self.materials.push(((self.f.len() / 3).try_into().unwrap(), mat));
     }
 
     /// adds a tri to the index buffer
