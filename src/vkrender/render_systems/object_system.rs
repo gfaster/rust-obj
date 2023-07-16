@@ -19,6 +19,7 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
 use vulkano::image::{ImageDimensions, ImmutableImage};
+use vulkano::pipeline::graphics::color_blend::ColorBlendState;
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::vertex_input::Vertex;
 use vulkano::pipeline::graphics::{input_assembly::InputAssemblyState, viewport::Viewport};
@@ -42,7 +43,12 @@ use crate::{
     mesh::{mtl::Material, MeshMeta},
 };
 
-use super::VkVertex;
+use super::super::VkVertex;
+
+#[derive(Default)]
+pub struct ObjectSystemConfig {
+    blend_mode: ColorBlendState
+}
 
 /// Basic rendering of an object
 ///
@@ -57,7 +63,7 @@ pub struct ObjectSystem<Allocator>
 where
     Arc<Allocator>: MemoryAllocator,
 {
-    objects: Vec<Option<ObjectInstance>>,
+    objects: Vec<ObjectInstance>,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
 
@@ -95,7 +101,21 @@ impl<Allocator> ObjectSystem<Allocator>
 where
     Arc<Allocator>: MemoryAllocator,
 {
+    #[inline]
     pub fn new(
+        gfx_queue: Arc<Queue>,
+        subpass: Subpass,
+        dimensions: [f32; 2],
+        memory_allocator: Arc<Allocator>,
+        command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+        descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    ) -> Self {
+
+        Self::new_with_config(Default::default(), gfx_queue, subpass, dimensions, memory_allocator, command_buffer_allocator, descriptor_set_allocator)
+    }
+
+    pub fn new_with_config(
+        _config: ObjectSystemConfig,
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
         dimensions: [f32; 2],
@@ -191,7 +211,7 @@ where
                 set_0,
             );
 
-        for object in self.objects.iter().filter_map(|x| x.as_ref()) {
+        for object in &self.objects {
             let (s_mat, s_mtl) = generate_uniforms_1(&object.meta);
             let set_1 = PersistentDescriptorSet::new(
                 &self.descset_allocator,
@@ -250,7 +270,7 @@ where
         self.pipeline = pipeline;
     }
 
-    pub fn register_object(&mut self, object: MeshData, transform: glm::Mat4) {
+    pub fn register_object(&mut self, object: MeshData, transform: glm::Mat4) -> &ObjectInstance {
         let meta = object.get_meta();
         let mesh_buffs: MeshDataBuffs<VkVertex> = object.into();
         let (vertices, indices) = mesh_buffs.to_buffers(&self.memory_allocator);
@@ -290,17 +310,24 @@ where
             ImageView::new_default(image).unwrap()
         };
 
-        self.objects.push(Some(ObjectInstance {
+        self.objects.push(ObjectInstance {
             vertices,
             indices,
             meta,
             transform,
             texture,
-        }));
+        });
+
+        self.objects.last().unwrap()
+    }
+
+    pub fn register_object_instance(&mut self, instance: &ObjectInstance) {
+        self.objects.push(instance.clone())
     }
 }
 
-struct ObjectInstance {
+#[derive(Clone)]
+pub struct ObjectInstance {
     vertices: Subbuffer<[VkVertex]>,
     indices: Subbuffer<[u32]>,
     meta: MeshMeta,

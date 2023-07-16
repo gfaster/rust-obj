@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use image::Rgba32FImage;
-use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
+
 use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
@@ -14,7 +14,7 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{DeviceExtensions, DeviceOwned};
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
-use vulkano::image::{AttachmentImage, ImageDimensions, ImageUsage, ImmutableImage, StorageImage};
+use vulkano::image::{AttachmentImage, ImageUsage, StorageImage};
 
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
@@ -24,30 +24,17 @@ use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
 use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::{Framebuffer, Subpass};
 
-use vulkano::sampler::{Sampler, SamplerCreateInfo};
+
 use vulkano::sync::GpuFuture;
 use vulkano::{render_pass, sync};
 
 use crate::controls::Camera;
 use crate::glm::Vec3;
 
-use crate::mesh::mtl::Material;
 use crate::mesh::{MeshData, MeshDataBuffs};
 
+use crate::vkrender::render_systems::object_system::ObjectSystem;
 use crate::vkrender::{ screenshot_dir,  VkVertex};
-
-macro_rules! gen_write_descriptors {
-    ($uniform:ident, $(($data:expr, $binding:expr)),*) => {
-        [
-            $( {
-                let subbuffer = $uniform.allocate_sized().unwrap();
-                *subbuffer.write().unwrap() = $data;
-                WriteDescriptorSet::buffer(
-                    $binding, subbuffer)
-            }, )*
-        ]
-    }
-}
 
 pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<String> {
     // I'm using the Vulkano examples to learn here
@@ -59,7 +46,16 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
     let mut cam = Camera::new(dim.0 as f32 / dim.1 as f32);
 
     let device_extensions = DeviceExtensions {
+        // for saving back to CPU memory
         khr_storage_buffer_storage_class: true,
+
+        // for blending
+        // I am not using this for now because of the lack of wrapper in Vulkano - there are some
+        // extra invariants that using the extension requires.
+        // see: https://github.com/vulkano-rs/vulkano/issues/572
+        // see: https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_EXT_blend_operation_advanced.html
+        // ext_blend_operation_advanced: true,
+
         ..DeviceExtensions::empty()
     };
 
@@ -81,15 +77,6 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
     )
     .unwrap();
 
-    // setup done - now to mesh
-    let mesh_meta = m.get_meta();
-    let mesh_buffs: MeshDataBuffs<VkVertex> = m.into();
-    let (vertex_buffer, index_buffer) = mesh_buffs.to_buffers(&memory_allocator);
-
-    let (frame_vertex_buffer, frame_index_buffer) = {
-        let frame_mesh = crate::mesh::primative::frame();
-        Into::<MeshDataBuffs<VkVertex>>::into(frame_mesh).to_buffers(&memory_allocator)
-    };
 
     let transfer_buffer = Buffer::from_iter(
         &memory_allocator,
@@ -107,14 +94,6 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
             .map(|_| 0f32),
     )
     .unwrap();
-
-    let uniform_buffer = SubbufferAllocator::new(
-        memory_allocator.clone(),
-        SubbufferAllocatorCreateInfo {
-            buffer_usage: BufferUsage::UNIFORM_BUFFER,
-            ..Default::default()
-        },
-    );
 
     let fs_cmp = cmp_fs::load(device.clone()).unwrap();
     let fs_cmp_entry = fs_cmp.entry_point("main").unwrap();
@@ -207,46 +186,15 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
     )
     .unwrap();
 
-    let pipeline_1 = GraphicsPipeline::start()
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-        .vertex_input_state(VkVertex::per_vertex())
-        // list of triangles - I think this doesn't need to change for idx buf
-        .input_assembly_state(InputAssemblyState::new())
-        .vertex_shader(vs_entry.clone(), ())
-        .fragment_shader(fs_entry.clone(), ())
-        .depth_stencil_state(DepthStencilState::simple_depth_test())
-        .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-            Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [dim.0 as f32, dim.1 as f32],
-                depth_range: 0.0..1.0,
-            },
-        ]))
-        .build(memory_allocator.device().clone())
-        .unwrap();
+    let (frame_vertex_buffer, frame_index_buffer) = {
+        let frame_mesh: MeshDataBuffs<VkVertex> = crate::mesh::primative::frame().into();
+        frame_mesh.to_buffers(&memory_allocator)
+    };
 
-    let pipeline_2 = GraphicsPipeline::start()
-        .render_pass(Subpass::from(render_pass.clone(), 1).unwrap())
-        .vertex_input_state(VkVertex::per_vertex())
-        // list of triangles - I think this doesn't need to change for idx buf
-        .input_assembly_state(InputAssemblyState::new())
-        .vertex_shader(vs_entry.clone(), ())
-        .fragment_shader(fs_entry.clone(), ())
-        .depth_stencil_state(DepthStencilState::simple_depth_test())
-        .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-            Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [dim.0 as f32, dim.1 as f32],
-                depth_range: 0.0..1.0,
-            },
-        ]))
-        .build(memory_allocator.device().clone())
-        .unwrap();
 
     let pipeline_view = GraphicsPipeline::start()
         .render_pass(Subpass::from(render_pass.clone(), 2).unwrap())
         .vertex_input_state(VkVertex::per_vertex())
-        // list of triangles - I think this doesn't need to change for idx buf
         .input_assembly_state(InputAssemblyState::new())
         .vertex_shader(vs_cmp_entry, ())
         .fragment_shader(fs_cmp_entry, ())
@@ -264,7 +212,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
     let framebuffer = {
         let view = ImageView::new_default(image.clone()).unwrap();
         Framebuffer::new(
-            render_pass,
+            render_pass.clone(),
             render_pass::FramebufferCreateInfo {
                 attachments: vec![
                     view,
@@ -279,15 +227,32 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
         .unwrap()
     };
 
-    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
+    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
     let command_buffer_allocator =
-        StandardCommandBufferAllocator::new(device.clone(), Default::default());
+        Arc::new(StandardCommandBufferAllocator::new(device.clone(), Default::default()));
 
-    let sampler = Sampler::new(device.clone(), SamplerCreateInfo::simple_repeat_linear()).unwrap();
-    let tex_img = mesh_meta
-        .material
-        .diffuse_map()
-        .unwrap_or_else(|| Material::new_dev().diffuse_map().unwrap());
+    let dimensions = [dim.0 as f32, dim.1 as f32];
+    // need 2 because they are on different subpasses
+    let mut object_system_left = ObjectSystem::new(queue.clone(),
+        Subpass::from(render_pass.clone(), 0).unwrap(),
+        dimensions,
+        memory_allocator.clone(),
+        command_buffer_allocator.clone(), 
+        descriptor_set_allocator.clone()
+    );
+    let mut object_system_right = ObjectSystem::new(queue.clone(),
+        Subpass::from(render_pass.clone(), 1).unwrap(),
+        dimensions,
+        memory_allocator.clone(),
+        command_buffer_allocator.clone(), 
+        descriptor_set_allocator.clone()
+    );
+
+    {
+        let instance = object_system_left.register_object(m, glm::Mat4::identity());
+        object_system_right.register_object_instance(instance);
+    }
+    
 
     // initialization done!
 
@@ -301,75 +266,6 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
-
-        let texture = {
-            let dimensions = ImageDimensions::Dim2d {
-                width: tex_img.width(),
-                height: tex_img.height(),
-                array_layers: 1,
-            };
-            let image = ImmutableImage::from_iter(
-                &memory_allocator,
-                tex_img.as_raw().clone(),
-                dimensions,
-                vulkano::image::MipmapsCount::Log2,
-                Format::R8G8B8A8_SRGB,
-                &mut builder,
-            )
-            .unwrap();
-
-            ImageView::new_default(image).unwrap()
-        };
-
-        let aspect = dim.0 as f32 / dim.1 as f32;
-        let layout_1 = pipeline_1.layout().set_layouts().get(0).unwrap();
-
-        cam.pos = pos_pair[0];
-        let set_1 = {
-            let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
-            PersistentDescriptorSet::new(
-                &descriptor_set_allocator,
-                layout_1.clone(),
-                gen_write_descriptors!(
-                    uniform_buffer,
-                    (s_cam, vs::CAM_BINDING),
-                    (s_mat, vs::MAT_BINDING),
-                    (s_mtl, fs::MTL_BINDING),
-                    (s_light, fs::LIGHT_BINDING)
-                )
-                .into_iter()
-                .chain([WriteDescriptorSet::image_view_sampler(
-                    4,
-                    texture.clone(),
-                    sampler.clone(),
-                )]),
-            )
-            .unwrap()
-        };
-
-        let layout_2 = pipeline_2.layout().set_layouts().get(0).unwrap();
-        cam.pos = pos_pair[1];
-        let set_2 = {
-            let (s_cam, s_mat, s_mtl, s_light) = generate_uniforms(&mesh_meta, &cam, aspect);
-            PersistentDescriptorSet::new(
-                &descriptor_set_allocator,
-                layout_2.clone(),
-                gen_write_descriptors!(
-                    uniform_buffer,
-                    (s_cam, vs::CAM_BINDING),
-                    (s_mat, vs::MAT_BINDING),
-                    (s_mtl, fs::MTL_BINDING),
-                    (s_light, fs::LIGHT_BINDING)
-                )
-                .into_iter()
-                .chain([WriteDescriptorSet::image_view_sampler(
-                    4,
-                    texture.clone(),
-                    sampler.clone(),
-                )]),
-            )
-            .unwrap()
-        };
 
         let layout_view = pipeline_view.layout().set_layouts().get(0).unwrap();
         let set_view = {
@@ -397,31 +293,21 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
                     ],
                     ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
                 },
-                SubpassContents::Inline,
+                SubpassContents::SecondaryCommandBuffers,
             )
             .unwrap()
-            .bind_pipeline_graphics(pipeline_1.clone())
-            .bind_descriptor_sets(
-                PipelineBindPoint::Graphics,
-                pipeline_1.layout().clone(),
-                0,
-                set_1,
-            )
-            .bind_vertex_buffers(0, vertex_buffer.clone())
-            .bind_index_buffer(index_buffer.clone())
-            .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
+            .execute_commands(object_system_left.draw({
+                cam.pos = pos_pair[0];
+                &cam
+            }))
             .unwrap()
-            .next_subpass(SubpassContents::Inline)
+            .next_subpass(SubpassContents::SecondaryCommandBuffers)
             .unwrap()
-            .bind_pipeline_graphics(pipeline_2.clone())
-            .bind_descriptor_sets(
-                PipelineBindPoint::Graphics,
-                pipeline_2.layout().clone(),
-                0,
-                set_2,
-            )
-            .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-            .unwrap_or_else(|e| panic!("{}", e))
+            .execute_commands(object_system_right.draw({
+                cam.pos = pos_pair[1];
+                &cam
+            }))
+            .unwrap()
             .next_subpass(SubpassContents::Inline)
             .unwrap()
             .bind_vertex_buffers(0, frame_vertex_buffer.clone())

@@ -1,5 +1,5 @@
 pub mod init;
-pub mod subpasspreset;
+pub mod render_systems;
 
 use std::sync::Arc;
 
@@ -22,7 +22,7 @@ use vulkano::memory::allocator::{
     AllocationCreateInfo, MemoryAllocator, MemoryUsage, StandardMemoryAllocator,
 };
 
-use vulkano::pipeline::graphics::vertex_input::{self, Vertex};
+use vulkano::pipeline::graphics::vertex_input;
 use vulkano::pipeline::graphics::viewport::Viewport;
 
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
@@ -43,7 +43,7 @@ use crate::glm::Vec3;
 
 use crate::mesh::{self, MeshData, MeshDataBuffs};
 use crate::vkrender::init::initialize_device;
-use crate::vkrender::subpasspreset::ObjectSystem;
+use render_systems::object_system::ObjectSystem;
 
 pub mod consts {
     use nalgebra::ArrayStorage;

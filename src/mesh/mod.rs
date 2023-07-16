@@ -99,6 +99,7 @@ pub struct MeshData {
     running_volume: f32,
 }
 
+#[derive(Clone)]
 pub struct MeshMeta {
     pub centroid: Vec3,
     pub normalize_factor: f32,
