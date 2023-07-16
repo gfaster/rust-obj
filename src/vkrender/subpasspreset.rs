@@ -9,16 +9,16 @@
 
 use std::cell::Cell;
 use std::sync::Arc;
-use vulkano::buffer::BufferUsage;
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
+use vulkano::buffer::BufferUsage;
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
-    SecondaryAutoCommandBuffer, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
+    PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, SecondaryAutoCommandBuffer,
 };
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::format::Format;
-use vulkano::image::{ImageDimensions, ImmutableImage};
 use vulkano::image::view::ImageView;
+use vulkano::image::{ImageDimensions, ImmutableImage};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::vertex_input::Vertex;
 use vulkano::pipeline::graphics::{input_assembly::InputAssemblyState, viewport::Viewport};
@@ -63,14 +63,18 @@ where
 
     /// command buffer for textures that need to be uploaded to the GPU. uploading happens on draw,
     /// if there are any pending
-    upload_cmdbuf: Cell<Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>>>,
+    upload_cmdbuf: Cell<
+        Option<
+            AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        >,
+    >,
 
     /// various necessary vulkano components
     gfx_queue: Arc<Queue>,
     cmdbuf_allocator: Arc<StandardCommandBufferAllocator>,
     descset_allocator: Arc<StandardDescriptorSetAllocator>,
     memory_allocator: Arc<Allocator>,
-    
+
     /// the subbuffer allocator is owned because I think it may be better for reducing
     /// fragmentation
     uniform_allocator: SubbufferAllocator<Arc<Allocator>>,
@@ -89,7 +93,7 @@ macro_rules! subbuffer_write_descriptors {
 
 impl<Allocator> ObjectSystem<Allocator>
 where
-    Arc<Allocator>: MemoryAllocator
+    Arc<Allocator>: MemoryAllocator,
 {
     pub fn new(
         gfx_queue: Arc<Queue>,
@@ -102,10 +106,13 @@ where
         let vs = vs::load(gfx_queue.device().clone()).unwrap();
         let fs = fs::load(gfx_queue.device().clone()).unwrap();
 
-        let subbuffer_allocator = SubbufferAllocator::new(memory_allocator.clone(), SubbufferAllocatorCreateInfo {
-            buffer_usage: BufferUsage::UNIFORM_BUFFER,
-            ..Default::default()
-        });
+        let subbuffer_allocator = SubbufferAllocator::new(
+            memory_allocator.clone(),
+            SubbufferAllocatorCreateInfo {
+                buffer_usage: BufferUsage::UNIFORM_BUFFER,
+                ..Default::default()
+            },
+        );
 
         let pipeline = GraphicsPipeline::start()
             .render_pass(subpass.clone())
@@ -124,7 +131,6 @@ where
             .build(gfx_queue.device().clone())
             .unwrap();
 
-
         Self {
             objects: Vec::new(),
             pipeline,
@@ -141,7 +147,7 @@ where
     pub fn draw(&self, cam: &Camera) -> SecondaryAutoCommandBuffer {
         let layout_0 = self.pipeline.layout().set_layouts().get(0).unwrap().clone();
         let layout_1 = self.pipeline.layout().set_layouts().get(1).unwrap().clone();
-        let (s_cam, s_light) = generate_uniforms_0(cam);
+        let (s_light, s_cam) = generate_uniforms_0(cam);
         let set_0 = PersistentDescriptorSet::new(
             &self.descset_allocator,
             layout_0,
@@ -153,10 +159,16 @@ where
         )
         .unwrap();
 
-        self.upload_cmdbuf.take().map(|c| c.build().unwrap().execute(self.gfx_queue.clone()));
+        self.upload_cmdbuf.take().map(|c| {
+            eprintln!("[ObjectSystem]: uploading textures");
+            c.build().unwrap().execute(self.gfx_queue.clone())
+        });
 
-        let sampler =
-            Sampler::new(self.gfx_queue.device().clone(), SamplerCreateInfo::simple_repeat_linear()).unwrap();
+        let sampler = Sampler::new(
+            self.gfx_queue.device().clone(),
+            SamplerCreateInfo::simple_repeat_linear(),
+        )
+        .unwrap();
 
         let mut builder = AutoCommandBufferBuilder::secondary(
             &self.cmdbuf_allocator,
@@ -168,6 +180,7 @@ where
             },
         )
         .unwrap();
+
 
         builder
             .bind_pipeline_graphics(self.pipeline.clone())
@@ -187,13 +200,23 @@ where
                     self.uniform_allocator,
                     (s_mat, vs::MAT_BINDING),
                     (s_mtl, fs::MTL_BINDING)
-                }.into_iter()
-                    .chain([WriteDescriptorSet::image_view_sampler(4, object.texture.clone(), sampler.clone())]),
+                }
+                .into_iter()
+                .chain([WriteDescriptorSet::image_view_sampler(
+                    fs::SAMPLER_BINDING,
+                    object.texture.clone(),
+                    sampler.clone(),
+                )]),
             )
             .unwrap();
 
             builder
-                .bind_descriptor_sets(PipelineBindPoint::Graphics, self.pipeline.layout().clone(), 1, set_1)
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Graphics,
+                    self.pipeline.layout().clone(),
+                    1,
+                    set_1,
+                )
                 .bind_vertex_buffers(0, object.vertices.clone())
                 .bind_index_buffer(object.indices.clone())
                 .draw_indexed(object.indices.len() as u32, 1, 0, 0, 0)
@@ -203,6 +226,7 @@ where
     }
 
     pub fn regenerate(&mut self, dimensions: [f32; 2]) {
+        log!("regenerated");
         let vs = vs::load(self.gfx_queue.device().clone()).unwrap();
         let fs = fs::load(self.gfx_queue.device().clone()).unwrap();
 
@@ -233,14 +257,19 @@ where
 
         let texture = {
             // take because lifetimes are annoying here
-            let mut upload = self.upload_cmdbuf.take().unwrap_or_else(|| 
+            let mut upload = self.upload_cmdbuf.take().unwrap_or_else(|| {
                 AutoCommandBufferBuilder::primary(
-                    &self.cmdbuf_allocator, 
-                    self.gfx_queue.queue_family_index(), 
-                    CommandBufferUsage::OneTimeSubmit).unwrap()
-            );
+                    &self.cmdbuf_allocator,
+                    self.gfx_queue.queue_family_index(),
+                    CommandBufferUsage::OneTimeSubmit,
+                )
+                .unwrap()
+            });
 
-            let img = meta.material.diffuse_map().unwrap();
+            let img = meta
+                .material
+                .diffuse_map()
+                .unwrap_or_else(|| Material::dev_texture().into());
             let dimensions = ImageDimensions::Dim2d {
                 width: img.width(),
                 height: img.height(),
@@ -252,7 +281,7 @@ where
                 dimensions,
                 vulkano::image::MipmapsCount::Log2,
                 Format::R8G8B8A8_SRGB,
-                &mut upload
+                &mut upload,
             )
             .unwrap();
 
@@ -266,7 +295,7 @@ where
             indices,
             meta,
             transform,
-            texture
+            texture,
         }));
     }
 }
@@ -328,6 +357,7 @@ pub mod vs {
         ty: "vertex",
         path: "shaders/vert_vk.glsl",
         linalg_type: "nalgebra",
+        custom_derives: [Debug]
     }
 
     // TODO: this might be revealed after entry point is added
@@ -340,12 +370,14 @@ pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
         path: "shaders/frag_vk.glsl",
-        linalg_type: "nalgebra"
+        linalg_type: "nalgebra",
+        custom_derives: [Debug]
     }
 
     // TODO: this might be revealed after entry point is added
     pub const MTL_BINDING: u32 = 2;
     pub const LIGHT_BINDING: u32 = 3;
+    pub const SAMPLER_BINDING: u32 = 4;
 
     // declaration of ShaderMtl from macro parsing of frag_vk.glsl
     impl From<Material> for ShaderMtl {

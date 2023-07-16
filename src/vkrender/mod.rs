@@ -4,7 +4,7 @@ pub mod subpasspreset;
 use std::sync::Arc;
 
 use image::Rgba32FImage;
-use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
+
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
@@ -12,27 +12,21 @@ use vulkano::command_buffer::{
     SubpassContents,
 };
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
-use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 
-use vulkano::device::{DeviceExtensions, DeviceOwned};
+use vulkano::device::DeviceExtensions;
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
-use vulkano::image::{
-    AttachmentImage, ImageAccess, ImageDimensions, ImageUsage, ImmutableImage, StorageImage,
-    SwapchainImage,
-};
+use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, StorageImage, SwapchainImage};
 
 use vulkano::memory::allocator::{
     AllocationCreateInfo, MemoryAllocator, MemoryUsage, StandardMemoryAllocator,
 };
-use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
-use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
+
 use vulkano::pipeline::graphics::vertex_input::{self, Vertex};
-use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
-use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
+use vulkano::pipeline::graphics::viewport::Viewport;
+
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
-use vulkano::sampler::{Sampler, SamplerCreateInfo};
-use vulkano::shader::ShaderModule;
+
 use vulkano::swapchain::{
     acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
     SwapchainPresentInfo,
@@ -46,8 +40,8 @@ use winit::window::Window;
 
 use crate::controls::{mouse_move, Camera};
 use crate::glm::Vec3;
-use crate::mesh::mtl::Material;
-use crate::mesh::{self, MeshData, MeshDataBuffs, MeshMeta};
+
+use crate::mesh::{self, MeshData, MeshDataBuffs};
 use crate::vkrender::init::initialize_device;
 use crate::vkrender::subpasspreset::ObjectSystem;
 
@@ -177,7 +171,6 @@ pub fn display_model(m: mesh::MeshData) {
 
     let mut cam = Camera::new(1.0);
 
-
     let render_pass = vulkano::single_pass_renderpass!(
     device.clone(),
         attachments: {
@@ -204,8 +197,10 @@ pub fn display_model(m: mesh::MeshData) {
     .unwrap();
 
     let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
-    let command_buffer_allocator =
-        Arc::new(StandardCommandBufferAllocator::new(device.clone(), Default::default()));
+    let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
+        device.clone(),
+        Default::default(),
+    ));
 
     // TODO: creating an object system creates the pipeline and the initialize_based_on_window call
     // regenerates it
@@ -231,7 +226,7 @@ pub fn display_model(m: mesh::MeshData) {
         &images,
         render_pass.clone(),
         &mut object_system,
-        &mut viewport
+        &mut viewport,
     );
 
     // initialization done!
@@ -295,12 +290,11 @@ pub fn display_model(m: mesh::MeshData) {
                         &new_images,
                         render_pass.clone(),
                         &mut object_system,
-                        &mut viewport
+                        &mut viewport,
                     );
                     framebuffers = new_framebuffers;
                     recreate_swapchain = false;
                 }
-
 
                 // need to acquire image before drawing, blocks if it's not ready yet (too many
                 // commands), so it has optional timeout
@@ -343,9 +337,8 @@ pub fn display_model(m: mesh::MeshData) {
 
                 builder.execute_commands(object_system.draw(&cam)).unwrap();
 
-                    // additional passes would go here
-                builder.end_render_pass()
-                    .unwrap();
+                // additional passes would go here
+                builder.end_render_pass().unwrap();
 
                 let command_buffer = builder.build().unwrap();
 
@@ -386,14 +379,13 @@ fn initialize_based_on_window(
     object_system: &mut ObjectSystem<StandardMemoryAllocator>,
     viewport: &mut Viewport,
 ) -> Vec<Arc<Framebuffer>> {
-
     let dimensions_u32 = images[0].dimensions().width_height();
     let dimensions = [dimensions_u32[0] as f32, dimensions_u32[1] as f32];
 
     *viewport = Viewport {
         origin: [0.0, 0.0],
         dimensions,
-        depth_range: 0.0..1.0
+        depth_range: 0.0..1.0,
     };
 
     object_system.regenerate(dimensions);
@@ -456,7 +448,6 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     )
     .unwrap();
 
-
     let transfer_buffer = Buffer::from_iter(
         &memory_allocator,
         BufferCreateInfo {
@@ -473,7 +464,6 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
             .map(|_| 0f32),
     )
     .unwrap();
-
 
     let render_pass = vulkano::single_pass_renderpass!(
         device.clone(),
@@ -501,17 +491,19 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     .unwrap();
 
     let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
-    let command_buffer_allocator =
-        Arc::new(StandardCommandBufferAllocator::new(device.clone(), Default::default()));
+    let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
+        device.clone(),
+        Default::default(),
+    ));
 
     let object_subpass = Subpass::from(render_pass.clone(), 0).unwrap();
     let mut object_system = ObjectSystem::new(
-        queue.clone(), 
-        object_subpass, 
+        queue.clone(),
+        object_subpass,
         [dim.0 as f32, dim.1 as f32],
-        memory_allocator.clone(), 
-        command_buffer_allocator.clone(), 
-        descriptor_set_allocator.clone()
+        memory_allocator.clone(),
+        command_buffer_allocator.clone(),
+        descriptor_set_allocator.clone(),
     );
 
     object_system.register_object(m, glm::identity());
@@ -521,8 +513,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
             AttachmentImage::transient(&memory_allocator, [dim.0, dim.1], Format::D16_UNORM)
                 .unwrap(),
         )
-            .unwrap();
-
+        .unwrap();
 
         let view = ImageView::new_default(image.clone()).unwrap();
         Framebuffer::new(
@@ -532,7 +523,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
                 ..Default::default()
             },
         )
-            .unwrap()
+        .unwrap()
     };
 
     // initialization done!
