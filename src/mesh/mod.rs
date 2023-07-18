@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 pub mod color;
 pub mod mtl;
@@ -93,6 +93,7 @@ pub struct MeshData {
     vt: Vec<glm::Vec2>,
     f: Vec<VertexIndexed>,
 
+    /// exclusive upper bound of each material
     materials: Vec<(u32, Material)>,
 
     running_center: Vec3,
@@ -103,7 +104,11 @@ pub struct MeshData {
 pub struct MeshMeta {
     pub centroid: Vec3,
     pub normalize_factor: f32,
-    pub materials: Vec<(u32, Material)>, 
+
+    /// tuple of exclusive upper bound of triangle index that the other element of tuple uses
+    ///
+    /// this is an [`Arc`] since we clone this somewhat often
+    pub materials: Arc<[(u32, Material)]>,
 }
 
 #[derive(Debug)]
@@ -144,7 +149,7 @@ impl MeshData {
         MeshMeta {
             centroid: self.centroid(),
             normalize_factor: self.normalize_factor(),
-            materials: self.materials.clone(),
+            materials: self.materials.clone().into(),
         }
     }
 
@@ -154,7 +159,7 @@ impl MeshData {
         MeshMeta {
             centroid: self.centroid(),
             normalize_factor: self.normalize_factor(),
-            materials: std::mem::take(&mut self.materials),
+            materials: std::mem::take(&mut self.materials).into(),
         }
     }
 
@@ -226,6 +231,7 @@ impl MeshData {
         })
     }
 
+    /// gets the materials used in the form of exclusive upper bounds
     pub fn materials(&self) -> &[(u32, Material)] {
         &self.materials
     }
@@ -235,7 +241,8 @@ impl MeshData {
     }
 
     pub fn set_material(&mut self, mat: Material) {
-        self.materials.push(((self.f.len() / 3).try_into().unwrap(), mat));
+        self.materials
+            .push(((self.f.len() / 3) as u32, mat));
     }
 
     /// adds a tri to the index buffer

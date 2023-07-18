@@ -258,8 +258,8 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
     );
 
     {
-        let instance = object_system_left.register_object(m, glm::Mat4::identity());
-        object_system_right.register_object_instance(instance);
+        let instances = object_system_left.register_object(m, glm::Mat4::identity());
+        object_system_right.register_object_instances(instances);
     }
 
     // initialization done!
@@ -365,7 +365,6 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
 }
 
 pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
-
     let (device, queue, surface, event_loop) = initialize_device_window(DeviceExtensions {
         khr_swapchain: true,
         ..DeviceExtensions::empty()
@@ -421,7 +420,6 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
         let frame_mesh: MeshDataBuffs<VkVertex> = crate::mesh::primative::frame().into();
         frame_mesh.to_buffers(&memory_allocator)
     };
-
 
     let mut cam = Camera::new(1.0);
 
@@ -508,8 +506,8 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
     );
 
     {
-        let instance = object_system_left.register_object(m, glm::Mat4::identity());
-        object_system_right.register_object_instance(instance);
+        let instances = object_system_left.register_object(m, glm::Mat4::identity());
+        object_system_right.register_object_instances(instances);
     }
 
     let mut viewport = Viewport {
@@ -526,7 +524,7 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
         &mut [&mut object_system_left, &mut object_system_right],
         &mut viewport,
         &mut cam,
-        (fs_cmp.clone(), vs_cmp.clone())
+        (fs_cmp.clone(), vs_cmp.clone()),
     );
 
     // initialization done!
@@ -593,7 +591,7 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                         &mut [&mut object_system_left, &mut object_system_right],
                         &mut viewport,
                         &mut cam,
-                        (fs_cmp.clone(), vs_cmp.clone())
+                        (fs_cmp.clone(), vs_cmp.clone()),
                     );
                     recreate_swapchain = false;
                 }
@@ -637,7 +635,9 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                                 Some(1.0.into()),
                                 Some(1.0.into()),
                             ],
-                            ..RenderPassBeginInfo::framebuffer(framebuffers[image_index as usize].clone())
+                            ..RenderPassBeginInfo::framebuffer(
+                                framebuffers[image_index as usize].clone(),
+                            )
                         },
                         SubpassContents::SecondaryCommandBuffers,
                     )
@@ -646,9 +646,7 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                     .unwrap()
                     .next_subpass(SubpassContents::SecondaryCommandBuffers)
                     .unwrap()
-                    .execute_commands(object_system_right.draw({
-                        &temp_cam
-                    }))
+                    .execute_commands(object_system_right.draw(&temp_cam))
                     .unwrap()
                     .next_subpass(SubpassContents::Inline)
                     .unwrap()
@@ -706,8 +704,12 @@ fn initialize_based_on_window(
     object_systems: &mut [&mut ObjectSystem<StandardMemoryAllocator>],
     viewport: &mut Viewport,
     cam: &mut Camera,
-    (fs, vs): (Arc<ShaderModule>, Arc<ShaderModule>)
-) -> (Arc<PersistentDescriptorSet>, Arc<GraphicsPipeline>, Vec<Arc<Framebuffer>>) {
+    (fs, vs): (Arc<ShaderModule>, Arc<ShaderModule>),
+) -> (
+    Arc<PersistentDescriptorSet>,
+    Arc<GraphicsPipeline>,
+    Vec<Arc<Framebuffer>>,
+) {
     let dimensions_u32 = images[0].dimensions().width_height();
     let dim = [dimensions_u32[0] as f32, dimensions_u32[1] as f32];
 

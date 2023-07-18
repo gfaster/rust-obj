@@ -46,8 +46,19 @@ use crate::{
 use super::super::VkVertex;
 
 #[derive(Default)]
+pub enum ObjectSystemRenderMode {
+    #[default]
+    Color,
+
+    Depth,
+} 
+
+#[derive(Default)]
 pub struct ObjectSystemConfig {
-    blend_mode: ColorBlendState,
+    pub blend_mode: ColorBlendState,
+    pub vertex_arena_size: vulkano::DeviceSize,
+    pub index_arena_size: vulkano::DeviceSize,
+    pub render_mode: ObjectSystemRenderMode,
 }
 
 /// Basic rendering of an object
@@ -66,6 +77,7 @@ where
     objects: Vec<ObjectInstance>,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
+    render_mode: ObjectSystemRenderMode,
 
     /// command buffer for textures that need to be uploaded to the GPU. uploading happens on draw,
     /// if there are any pending
@@ -83,7 +95,9 @@ where
 
     /// the subbuffer allocator is owned because I think it may be better for reducing
     /// fragmentation
-    uniform_allocator: SubbufferAllocator<Arc<Allocator>>,
+    uniform_buffer: SubbufferAllocator<Arc<Allocator>>,
+    vertex_buffer: SubbufferAllocator<Arc<Allocator>>,
+    index_buffer: SubbufferAllocator<Arc<Allocator>>,
 }
 
 macro_rules! subbuffer_write_descriptors {
@@ -122,7 +136,7 @@ where
     }
 
     pub fn new_with_config(
-        _config: ObjectSystemConfig,
+        config: ObjectSystemConfig,
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
         dimensions: [f32; 2],
@@ -130,13 +144,36 @@ where
         command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
         descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     ) -> Self {
-        let vs = vs::load(gfx_queue.device().clone()).unwrap();
-        let fs = fs::load(gfx_queue.device().clone()).unwrap();
 
-        let subbuffer_allocator = SubbufferAllocator::new(
+        let vs = vs::load(gfx_queue.device().clone()).unwrap();
+        let fs; 
+        match config.render_mode {
+            ObjectSystemRenderMode::Depth => fs = fs::load_depth(gfx_queue.device().clone()).unwrap(),
+            ObjectSystemRenderMode::Color => fs = fs::load_color(gfx_queue.device().clone()).unwrap(),
+        }
+
+        let uniform_buffer = SubbufferAllocator::new(
             memory_allocator.clone(),
             SubbufferAllocatorCreateInfo {
                 buffer_usage: BufferUsage::UNIFORM_BUFFER,
+                ..Default::default()
+            },
+        );
+
+        let vertex_buffer = SubbufferAllocator::new(
+            memory_allocator.clone(),
+            SubbufferAllocatorCreateInfo {
+                buffer_usage: BufferUsage::VERTEX_BUFFER,
+                arena_size: config.vertex_arena_size,
+                ..Default::default()
+            },
+        );
+
+        let index_buffer = SubbufferAllocator::new(
+            memory_allocator.clone(),
+            SubbufferAllocatorCreateInfo {
+                buffer_usage: BufferUsage::INDEX_BUFFER,
+                arena_size: config.index_arena_size,
                 ..Default::default()
             },
         );
@@ -166,7 +203,10 @@ where
             descset_allocator: descriptor_set_allocator,
             memory_allocator,
             gfx_queue,
-            uniform_allocator: subbuffer_allocator,
+            uniform_buffer,
+            index_buffer,
+            vertex_buffer,
+            render_mode: config.render_mode,
             upload_cmdbuf: None.into(),
         }
     }
@@ -179,7 +219,7 @@ where
             &self.descset_allocator,
             layout_0,
             subbuffer_write_descriptors! {
-                self.uniform_allocator,
+                self.uniform_buffer,
                 (s_cam, vs::CAM_BINDING),
                 (s_light, fs::LIGHT_BINDING)
             },
@@ -218,12 +258,12 @@ where
             );
 
         for object in &self.objects {
-            let (s_mat, s_mtl) = generate_uniforms_1(&object.meta);
+            let (s_mat, s_mtl) = generate_uniforms_1(&object);
             let set_1 = PersistentDescriptorSet::new(
                 &self.descset_allocator,
                 layout_1.clone(),
                 subbuffer_write_descriptors! {
-                    self.uniform_allocator,
+                    self.uniform_buffer,
                     (s_mat, vs::MAT_BINDING),
                     (s_mtl, fs::MTL_BINDING)
                 }
@@ -252,9 +292,14 @@ where
     }
 
     pub fn regenerate(&mut self, dimensions: [f32; 2]) {
-        log!("regenerated");
+        log!("regenerating...");
         let vs = vs::load(self.gfx_queue.device().clone()).unwrap();
-        let fs = fs::load(self.gfx_queue.device().clone()).unwrap();
+
+        let fs; 
+        match self.render_mode {
+            ObjectSystemRenderMode::Depth => fs = fs::load_depth(self.gfx_queue.device().clone()).unwrap(),
+            ObjectSystemRenderMode::Color => fs = fs::load_color(self.gfx_queue.device().clone()).unwrap(),
+        }
 
         let pipeline = GraphicsPipeline::start()
             .render_pass(self.subpass.clone())
@@ -276,24 +321,31 @@ where
         self.pipeline = pipeline;
     }
 
-    pub fn register_object(&mut self, object: MeshData, transform: glm::Mat4) -> &ObjectInstance {
+    pub fn register_object(&mut self, object: MeshData, transform: glm::Mat4) -> &[ObjectInstance] {
         let meta = object.get_meta();
         let mesh_buffs: MeshDataBuffs<VkVertex> = object.into();
-        let (vertices, indices) = mesh_buffs.to_buffers(&self.memory_allocator);
 
-        let texture = {
-            // take because lifetimes are annoying here
-            let mut upload = self.upload_cmdbuf.take().unwrap_or_else(|| {
-                AutoCommandBufferBuilder::primary(
-                    &self.cmdbuf_allocator,
-                    self.gfx_queue.queue_family_index(),
-                    CommandBufferUsage::OneTimeSubmit,
-                )
-                .unwrap()
-            });
+        let vertices = self.vertex_buffer.allocate_slice(mesh_buffs.verts.len() as vulkano::DeviceSize).unwrap();
+        let mut indices = self.index_buffer.allocate_slice(mesh_buffs.indices.len() as vulkano::DeviceSize).unwrap();
+        vertices.write().unwrap().copy_from_slice(&mesh_buffs.verts);
+        indices.write().unwrap().copy_from_slice(&mesh_buffs.indices);
 
-            let img = meta
-                .material
+        // take because lifetimes are annoying here
+        let mut upload_cmdbuf = self.upload_cmdbuf.take().unwrap_or_else(|| {
+            AutoCommandBufferBuilder::primary(
+                &self.cmdbuf_allocator,
+                self.gfx_queue.queue_family_index(),
+                CommandBufferUsage::OneTimeSubmit,
+            )
+            .unwrap()
+        });
+
+        let first_idx = self.objects.len();
+
+        let mut prev = 0;
+        for (mtl_idx, material) in meta.materials.iter().enumerate() {
+            let img = material
+                .1
                 .diffuse_map()
                 .unwrap_or_else(|| Material::dev_texture().into());
             let dimensions = ImageDimensions::Dim2d {
@@ -307,28 +359,38 @@ where
                 dimensions,
                 vulkano::image::MipmapsCount::Log2,
                 Format::R8G8B8A8_SRGB,
-                &mut upload,
+                &mut upload_cmdbuf,
             )
             .unwrap();
 
-            self.upload_cmdbuf = Some(upload).into();
 
-            ImageView::new_default(image).unwrap()
-        };
+            let mid = material.0 as vulkano::DeviceSize * 3;
+            let split_indices;
+            if mid < indices.len() {
+                (split_indices, indices) = indices.split_at(mid - prev);
+            } else {
+                split_indices = indices.clone();
+            }
+            prev = mid;
 
-        self.objects.push(ObjectInstance {
-            vertices,
-            indices,
-            meta,
-            transform,
-            texture,
-        });
 
-        self.objects.last().unwrap()
+            self.objects.push(ObjectInstance {
+                vertices: vertices.clone(),
+                indices: split_indices,
+                meta: meta.clone(),
+                mtl_idx,
+                transform,
+                texture: ImageView::new_default(image).unwrap(),
+            });
+        }
+
+        self.upload_cmdbuf = Some(upload_cmdbuf).into();
+
+        &self.objects[first_idx..]
     }
 
-    pub fn register_object_instance(&mut self, instance: &ObjectInstance) {
-        self.objects.push(instance.clone())
+    pub fn register_object_instances(&mut self, instances: &[ObjectInstance]) {
+        self.objects.extend_from_slice(instances)
     }
 }
 
@@ -337,6 +399,7 @@ pub struct ObjectInstance {
     vertices: Subbuffer<[VkVertex]>,
     indices: Subbuffer<[u32]>,
     meta: MeshMeta,
+    mtl_idx: usize,
     texture: Arc<ImageView<ImmutableImage>>,
     transform: glm::Mat4,
 }
@@ -358,7 +421,8 @@ fn generate_uniforms_0(cam: &Camera) -> (fs::ShaderLight, vs::ShaderCamAttr) {
     (light, cam_attr)
 }
 
-pub fn generate_uniforms_1(meta: &MeshMeta) -> (vs::ShaderMatBuffer, fs::ShaderMtl) {
+pub fn generate_uniforms_1(instance: &ObjectInstance) -> (vs::ShaderMatBuffer, fs::ShaderMtl) {
+    let meta = &instance.meta;
     let scale = 1.5 / meta.normalize_factor;
     let center = meta.centroid;
     let transform = glm::Mat4::from([
@@ -380,7 +444,7 @@ pub fn generate_uniforms_1(meta: &MeshMeta) -> (vs::ShaderMatBuffer, fs::ShaderM
         normal_matrix,
     };
 
-    let mtl = meta.material.clone().into();
+    let mtl = meta.materials[instance.mtl_idx].1.clone().into();
 
     (mat, mtl)
 }
@@ -401,8 +465,16 @@ pub mod fs {
     use super::Material;
 
     vulkano_shaders::shader! {
-        ty: "fragment",
-        path: "shaders/frag_vk.glsl",
+        shaders: {
+            color: {
+                ty: "fragment",
+                path: "shaders/frag_color_vk.glsl",
+            },
+            depth: {
+                ty: "fragment",
+                path: "shaders/frag_vk.glsl",
+            },
+        },
         linalg_type: "nalgebra",
         custom_derives: [Debug]
     }

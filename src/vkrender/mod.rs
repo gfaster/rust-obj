@@ -58,7 +58,7 @@ pub mod consts {
 }
 
 // format attributes use [`vulkano::format::Format`] enum fields
-#[derive(BufferContents, vertex_input::Vertex)]
+#[derive(BufferContents, vertex_input::Vertex, Clone, Copy)]
 #[repr(C)]
 pub struct VkVertex {
     #[format(R32G32B32_SFLOAT)]
