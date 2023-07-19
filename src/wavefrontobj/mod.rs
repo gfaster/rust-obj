@@ -72,11 +72,7 @@ fn read_line(
             //*curr_mat = Some(mtl_registry.keys().next().ok_or(WavefrontObjError::MissingMaterial).unwrap().clone());
         }
         "usemtl" => {
-            match mtl_registry.get(
-                *tokens
-                    .get(1)
-                    .ok_or(WavefrontObjError::MissingArguments)?
-            ) {
+            match mtl_registry.get(*tokens.get(1).ok_or(WavefrontObjError::MissingArguments)?) {
                 None => return Err(WavefrontObjError::UnknownMaterial.into()),
                 Some(mat) => match curr_mat {
                     None => *curr_mat = Some(mat.name().to_string()),
@@ -100,19 +96,10 @@ fn read_line(
 
 fn parse_vec3(tokens: &[&str]) -> ObjResult<Vec3> {
     // first index is the type - ignored by this function
-    // oops - I accidentally made this weirdly complicated
-    tokens
-        .iter()
-        .skip(1)
-        .take(3)
-        .map(|t| t.parse())
-        .collect::<Result<Vec<f32>, _>>()
-        .map_err(|e| Into::<Box<dyn Error>>::into(Box::new(e)))
-        .map(|v| {
-            TryInto::<[f32; 3]>::try_into(v)
-                .map_err(|_| WavefrontObjError::InvalidVectorFormat.into())
-        })?
-        .map(Into::into)
+    if tokens.len() != 4 {
+        return Err(WavefrontObjError::InvalidVectorFormat.into());
+    }
+    return Ok(glm::vec3::<f32>(tokens[1].parse()?, tokens[2].parse()?, tokens[3].parse()?));
 }
 
 fn parse_texture_coords(tokens: &[&str]) -> ObjResult<Vec2> {
@@ -120,25 +107,8 @@ fn parse_texture_coords(tokens: &[&str]) -> ObjResult<Vec2> {
     if !matches!(tokens.len(), 3 | 4) {
         return Err(WavefrontObjError::InvalidTexturePosFormat.into());
     }
-    let mut res: ObjResult<Vec2> = tokens
-        .iter()
-        .skip(1)
-        .take(2)
-        .map(|t| t.parse())
-        .collect::<Result<Vec<f32>, _>>()
-        .map_err(|e| Into::<Box<dyn Error>>::into(Box::new(e)))
-        .map(|v| {
-            TryInto::<[f32; 2]>::try_into(v)
-                .map_err(|_| WavefrontObjError::InvalidTexturePosFormat.into())
-        })?
-        .map(Into::into);
-
-    res.as_mut()
-        .map(|res| {
-            res.x = 1.0 - res.x;
-        })
-        .unwrap_or(());
-    res
+    // need to invert y value for vulkan it seems
+    return Ok(glm::vec2::<f32>(tokens[1].parse()?, 1.0f32 - tokens[2].parse::<f32>()?));
 }
 
 fn parse_face(tokens: &[&str]) -> ObjResult<[VertexIndexed; 3]> {
@@ -147,19 +117,19 @@ fn parse_face(tokens: &[&str]) -> ObjResult<[VertexIndexed; 3]> {
         return Err(WavefrontObjError::TooManyFaceVertices.into());
     };
 
-    // TODO: fewer allocations here
-    let attrs: Vec<_> = tokens[1..]
-        .iter()
-        .map(|t: &&str| {
-            let mut v = t.split('/').map(|sv| sv.parse::<u32>().ok().map(|i| i - 1));
+    // made this into a for loop to avoid the allocation from collecting into a vec
+    let mut attrs = [VertexIndexed::default(); 3];
+    for (i, attr) in attrs.iter_mut().enumerate() {
+        let mut v = tokens[i + 1].split('/').map(|sv| sv.parse::<u32>().ok().map(|i| i - 1));
 
-            let pos = v.next()??;
+        if let Some(pos) = v.next().flatten() {
             let tex = v.next().flatten();
             let norm = v.next().flatten();
-            Some(VertexIndexed { pos, tex, norm })
-        })
-        .collect::<Option<Vec<_>>>()
-        .ok_or(WavefrontObjError::InvalidFaceFormat)?;
+            *attr = VertexIndexed { pos, tex, norm }
+        } else {
+            return Err(WavefrontObjError::InvalidFaceFormat.into());
+        }
+    }
 
     // ensure consistency of vertex attributes
     if !attrs
