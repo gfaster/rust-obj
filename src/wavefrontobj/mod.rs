@@ -99,7 +99,11 @@ fn parse_vec3(tokens: &[&str]) -> ObjResult<Vec3> {
     if tokens.len() != 4 {
         return Err(WavefrontObjError::InvalidVectorFormat.into());
     }
-    return Ok(glm::vec3::<f32>(tokens[1].parse()?, tokens[2].parse()?, tokens[3].parse()?));
+    return Ok(glm::vec3::<f32>(
+        tokens[1].parse()?,
+        tokens[2].parse()?,
+        tokens[3].parse()?,
+    ));
 }
 
 fn parse_texture_coords(tokens: &[&str]) -> ObjResult<Vec2> {
@@ -108,7 +112,10 @@ fn parse_texture_coords(tokens: &[&str]) -> ObjResult<Vec2> {
         return Err(WavefrontObjError::InvalidTexturePosFormat.into());
     }
     // need to invert y value for vulkan it seems
-    return Ok(glm::vec2::<f32>(tokens[1].parse()?, 1.0f32 - tokens[2].parse::<f32>()?));
+    return Ok(glm::vec2::<f32>(
+        tokens[1].parse()?,
+        1.0f32 - tokens[2].parse::<f32>()?,
+    ));
 }
 
 fn parse_face(tokens: &[&str]) -> ObjResult<[VertexIndexed; 3]> {
@@ -120,7 +127,9 @@ fn parse_face(tokens: &[&str]) -> ObjResult<[VertexIndexed; 3]> {
     // made this into a for loop to avoid the allocation from collecting into a vec
     let mut attrs = [VertexIndexed::default(); 3];
     for (i, attr) in attrs.iter_mut().enumerate() {
-        let mut v = tokens[i + 1].split('/').map(|sv| sv.parse::<u32>().ok().map(|i| i - 1));
+        let mut v = tokens[i + 1]
+            .split('/')
+            .map(|sv| sv.parse::<u32>().ok().map(|i| i - 1));
 
         if let Some(pos) = v.next().flatten() {
             let tex = v.next().flatten();

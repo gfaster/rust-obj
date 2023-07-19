@@ -224,6 +224,8 @@ impl std::fmt::Debug for Material {
 
         if let Some(m) = &self.diffuse_map {
             debug_struct.field("diffuse_map", &m.dimensions());
+        } else {
+            debug_struct.field("diffuse_map", &Option::<()>::None);
         }
 
         debug_struct.finish_non_exhaustive()

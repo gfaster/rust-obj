@@ -38,6 +38,7 @@ use vulkano::{
 };
 
 use crate::mesh::{MeshData, MeshDataBuffs};
+use crate::util::CellMap;
 use crate::{
     controls::Camera,
     mesh::{mtl::Material, MeshMeta},
@@ -51,7 +52,7 @@ pub enum ObjectSystemRenderMode {
     Color,
 
     Depth,
-} 
+}
 
 #[derive(Default)]
 pub struct ObjectSystemConfig {
@@ -86,6 +87,7 @@ where
             AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
         >,
     >,
+    unloaded_texture_count: Cell<u32>,
 
     /// various necessary vulkano components
     gfx_queue: Arc<Queue>,
@@ -144,12 +146,15 @@ where
         command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
         descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     ) -> Self {
-
         let vs = vs::load(gfx_queue.device().clone()).unwrap();
-        let fs; 
+        let fs;
         match config.render_mode {
-            ObjectSystemRenderMode::Depth => fs = fs::load_depth(gfx_queue.device().clone()).unwrap(),
-            ObjectSystemRenderMode::Color => fs = fs::load_color(gfx_queue.device().clone()).unwrap(),
+            ObjectSystemRenderMode::Depth => {
+                fs = fs::load_depth(gfx_queue.device().clone()).unwrap()
+            }
+            ObjectSystemRenderMode::Color => {
+                fs = fs::load_color(gfx_queue.device().clone()).unwrap()
+            }
         }
 
         let uniform_buffer = SubbufferAllocator::new(
@@ -208,6 +213,7 @@ where
             vertex_buffer,
             render_mode: config.render_mode,
             upload_cmdbuf: None.into(),
+            unloaded_texture_count: 0.into(),
         }
     }
 
@@ -225,11 +231,11 @@ where
             },
         )
         .unwrap();
-
         self.upload_cmdbuf.take().map(|c| {
-            eprintln!("[ObjectSystem]: uploading textures");
+            log!("uploading {} texture(s)", self.unloaded_texture_count.get());
             c.build().unwrap().execute(self.gfx_queue.clone())
         });
+        self.unloaded_texture_count.set(0);
 
         let sampler = Sampler::new(
             self.gfx_queue.device().clone(),
@@ -295,10 +301,14 @@ where
         log!("regenerating...");
         let vs = vs::load(self.gfx_queue.device().clone()).unwrap();
 
-        let fs; 
+        let fs;
         match self.render_mode {
-            ObjectSystemRenderMode::Depth => fs = fs::load_depth(self.gfx_queue.device().clone()).unwrap(),
-            ObjectSystemRenderMode::Color => fs = fs::load_color(self.gfx_queue.device().clone()).unwrap(),
+            ObjectSystemRenderMode::Depth => {
+                fs = fs::load_depth(self.gfx_queue.device().clone()).unwrap()
+            }
+            ObjectSystemRenderMode::Color => {
+                fs = fs::load_color(self.gfx_queue.device().clone()).unwrap()
+            }
         }
 
         let pipeline = GraphicsPipeline::start()
@@ -325,10 +335,19 @@ where
         let meta = object.get_meta();
         let mesh_buffs: MeshDataBuffs<VkVertex> = object.into();
 
-        let vertices = self.vertex_buffer.allocate_slice(mesh_buffs.verts.len() as vulkano::DeviceSize).unwrap();
-        let mut indices = self.index_buffer.allocate_slice(mesh_buffs.indices.len() as vulkano::DeviceSize).unwrap();
+        let vertices = self
+            .vertex_buffer
+            .allocate_slice(mesh_buffs.verts.len() as vulkano::DeviceSize)
+            .unwrap();
+        let mut indices = self
+            .index_buffer
+            .allocate_slice(mesh_buffs.indices.len() as vulkano::DeviceSize)
+            .unwrap();
         vertices.write().unwrap().copy_from_slice(&mesh_buffs.verts);
-        indices.write().unwrap().copy_from_slice(&mesh_buffs.indices);
+        indices
+            .write()
+            .unwrap()
+            .copy_from_slice(&mesh_buffs.indices);
 
         // take because lifetimes are annoying here
         let mut upload_cmdbuf = self.upload_cmdbuf.take().unwrap_or_else(|| {
@@ -363,6 +382,7 @@ where
             )
             .unwrap();
 
+            self.unloaded_texture_count.map_cell(|x| x + 1);
 
             let mid = material.0 as vulkano::DeviceSize * 3;
             let split_indices;
@@ -372,7 +392,6 @@ where
                 split_indices = indices.clone();
             }
             prev = mid;
-
 
             self.objects.push(ObjectInstance {
                 vertices: vertices.clone(),
@@ -413,10 +432,15 @@ fn generate_uniforms_0(cam: &Camera) -> (fs::ShaderLight, vs::ShaderCamAttr) {
         near,
         far,
         projection_matrix,
+        pos: cam.pos,
         transform: cam.get_transform(),
     };
 
-    let light = fs::ShaderLight { light_pos: cam.pos };
+    let light = fs::ShaderLight {
+        light_pos: cam.pos,
+        ambient_strength: 0.1,
+        light_strength: 40.0,
+    };
 
     (light, cam_attr)
 }
@@ -492,6 +516,7 @@ pub mod fs {
                 base_ambient: value.ambient().into(),
                 base_specular: value.specular().into(),
                 base_specular_factor: value.base_specular_factor(),
+                use_sampler: value.diffuse_map().is_some() as u32,
             }
         }
     }

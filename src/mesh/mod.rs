@@ -241,8 +241,7 @@ impl MeshData {
     }
 
     pub fn set_material(&mut self, mat: Material) {
-        self.materials
-            .push(((self.f.len() / 3) as u32, mat));
+        self.materials.push(((self.f.len() / 3) as u32, mat));
     }
 
     /// adds a tri to the index buffer
@@ -291,6 +290,7 @@ impl MeshData {
     /// calculates the normal for the triangle at tri_idx
     /// assumes a clockwise winding order
     fn calculate_tri_normal(&self, tri_idx: usize) -> Result<Vec3, MeshError> {
+        log!("inferring normal");
         let vtxs = self.verticies_from_tri_idx(tri_idx)?;
         let edge1 = vtxs[0].pos - vtxs[1].pos;
         let edge2 = vtxs[0].pos - vtxs[2].pos;
