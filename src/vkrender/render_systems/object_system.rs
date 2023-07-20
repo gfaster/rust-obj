@@ -298,15 +298,16 @@ where
     }
 
     pub fn regenerate(&mut self, dimensions: [f32; 2]) {
-        log!("regenerating...");
         let vs = vs::load(self.gfx_queue.device().clone()).unwrap();
 
         let fs;
         match self.render_mode {
             ObjectSystemRenderMode::Depth => {
+            log!("regenerating with depth...");
                 fs = fs::load_depth(self.gfx_queue.device().clone()).unwrap()
             }
             ObjectSystemRenderMode::Color => {
+            log!("regenerating with color...");
                 fs = fs::load_color(self.gfx_queue.device().clone()).unwrap()
             }
         }

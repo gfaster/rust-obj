@@ -41,7 +41,7 @@ use crate::glm::Vec3;
 use crate::mesh::{MeshData, MeshDataBuffs};
 
 use crate::vkrender::init::initialize_device_window;
-use crate::vkrender::render_systems::object_system::{ObjectSystem, ObjectSystemRenderMode, ObjectSystemConfig};
+use crate::vkrender::render_systems::object_system::{ObjectSystem, ObjectSystemConfig, ObjectSystemRenderMode};
 use crate::vkrender::{screenshot_dir, VkVertex};
 
 pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32> {
@@ -380,6 +380,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
     ret
 }
 
+const INTERMEDIATE_IMAGE_FORMAT: Format = vulkano::format::Format::R32G32B32A32_SFLOAT;
 pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
     let (device, queue, surface, event_loop) = initialize_device_window(DeviceExtensions {
         khr_swapchain: true,
@@ -438,6 +439,7 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
     };
 
     let mut cam = Camera::new(1.0);
+    
 
     let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
@@ -452,14 +454,14 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
         color_1: {
             load: Clear,
             store: DontCare,
-            format: swapchain.image_format(),
+            format: INTERMEDIATE_IMAGE_FORMAT,
             samples: 1,
         },
 
         color_2: {
             load: Clear,
             store: DontCare,
-            format: swapchain.image_format(),
+            format: INTERMEDIATE_IMAGE_FORMAT,
             samples: 1,
         },
         depth_1: {
@@ -503,7 +505,11 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
 
     // TODO: creating an object system creates the pipeline and the initialize_based_on_window call
     // regenerates it
-    let mut object_system_left = ObjectSystem::new(
+    let mut object_system_left = ObjectSystem::new_with_config(
+        ObjectSystemConfig {
+            render_mode: ObjectSystemRenderMode::Depth,
+            ..Default::default()
+        },
         queue.clone(),
         Subpass::from(render_pass.clone(), 0).unwrap(),
         [0.0, 0.0],
@@ -512,7 +518,11 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
         descriptor_set_allocator.clone(),
     );
 
-    let mut object_system_right = ObjectSystem::new(
+    let mut object_system_right = ObjectSystem::new_with_config(
+        ObjectSystemConfig {
+            render_mode: ObjectSystemRenderMode::Depth,
+            ..Default::default()
+        },
         queue.clone(),
         Subpass::from(render_pass.clone(), 1).unwrap(),
         [0.0, 0.0],
@@ -741,8 +751,6 @@ fn initialize_based_on_window(
         object_system.regenerate(dim);
     }
 
-    let image_format = images[0].format();
-
     let depth_buffer_1 = ImageView::new_default(
         AttachmentImage::transient(memory_allocator, dimensions_u32, Format::D16_UNORM).unwrap(),
     )
@@ -757,7 +765,7 @@ fn initialize_based_on_window(
         AttachmentImage::with_usage(
             memory_allocator,
             dimensions_u32,
-            image_format,
+            INTERMEDIATE_IMAGE_FORMAT,
             ImageUsage::TRANSIENT_ATTACHMENT | ImageUsage::INPUT_ATTACHMENT,
         )
         .unwrap(),
@@ -768,7 +776,7 @@ fn initialize_based_on_window(
         AttachmentImage::with_usage(
             memory_allocator,
             dimensions_u32,
-            image_format,
+            INTERMEDIATE_IMAGE_FORMAT,
             ImageUsage::TRANSIENT_ATTACHMENT | ImageUsage::INPUT_ATTACHMENT,
         )
         .unwrap(),

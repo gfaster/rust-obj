@@ -45,6 +45,7 @@ vec4 depth_buffer() {
     float depth = v_depth * gl_FragCoord.w;
     // float depth = 0.5;
     return vec4(vec3(depth), 1.0f);
+    // return vec4(vec3(1.0), 1.0);
 }
 
 vec4 color_correct(vec4 color) {
