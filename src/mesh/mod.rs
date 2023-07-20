@@ -87,10 +87,10 @@ where
     }
 }
 
-impl MeshData
-{
-    pub fn to_tri_list<Vtx>(&self) -> Vec<Vtx> 
-    where Vtx: std::convert::From<Vertex> + Clone
+impl MeshData {
+    pub fn to_tri_list<Vtx>(&self) -> Vec<Vtx>
+    where
+        Vtx: std::convert::From<Vertex> + Clone,
     {
         let mut ret = Vec::new();
         for tri in self.tris() {

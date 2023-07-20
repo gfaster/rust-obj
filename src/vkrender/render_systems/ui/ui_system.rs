@@ -1,28 +1,24 @@
 //! I think this is mostly superflous, but I'm basically doing this because it's a neat exercise
 
-use std::cell::Cell;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufReader, Write};
 use std::mem::size_of;
 use std::sync::Arc;
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
-use vulkano::buffer::{BufferUsage, Buffer, BufferCreateInfo, BufferCreateFlags};
+use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
-    PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, SecondaryAutoCommandBuffer,
+    SecondaryAutoCommandBuffer,
 };
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::format::Format;
-use vulkano::image::view::ImageView;
-use vulkano::image::{ImageDimensions, ImmutableImage};
+
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage};
-use vulkano::pipeline::graphics::color_blend::ColorBlendState;
+
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::vertex_input::Vertex;
 use vulkano::pipeline::graphics::{input_assembly::InputAssemblyState, viewport::Viewport};
 use vulkano::pipeline::Pipeline;
 use vulkano::pipeline::PipelineBindPoint;
 
-use vulkano::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::{
     buffer::Subbuffer,
     command_buffer::allocator::StandardCommandBufferAllocator,
@@ -31,13 +27,6 @@ use vulkano::{
     memory::allocator::MemoryAllocator,
     pipeline::{graphics::viewport::ViewportState, GraphicsPipeline},
     render_pass::Subpass,
-};
-
-use crate::mesh::{MeshData, MeshDataBuffs};
-use crate::util::CellMap;
-use crate::{
-    controls::Camera,
-    mesh::{mtl::Material, MeshMeta},
 };
 
 use crate::vkrender::VkVertex;
@@ -73,9 +62,8 @@ where
     /// fragmentation
     uniform_buffer: SubbufferAllocator<Arc<Allocator>>,
     vertex_buffer: Subbuffer<[VkVertex]>,
-    bitmap_buffer: Subbuffer<[u32]>
+    bitmap_buffer: Subbuffer<[u32]>,
 }
-
 
 macro_rules! subbuffer_write_descriptors {
     ($uniform:expr, $(($data:expr, $binding:expr)),*) => {
@@ -90,7 +78,7 @@ macro_rules! subbuffer_write_descriptors {
 
 impl<Allocator> UiSystem<Allocator>
 where
-    Arc<Allocator>: MemoryAllocator
+    Arc<Allocator>: MemoryAllocator,
 {
     pub fn new(
         gfx_queue: Arc<Queue>,
@@ -113,9 +101,7 @@ where
 
         let bdf = include_str!("../../../../assets/ter-u12b.bdf");
         let mut reader = BufReader::new(bdf.as_bytes());
-        let font = super::font::Font::parse_bdf(&mut reader).unwrap_or_else(|e| {
-            panic!("{}", e)
-        });
+        let font = super::font::Font::parse_bdf(&mut reader).unwrap_or_else(|e| panic!("{}", e));
 
         let bitmap_buffer = Buffer::from_iter(
             &memory_allocator,
@@ -123,12 +109,13 @@ where
                 usage: BufferUsage::STORAGE_BUFFER,
                 ..Default::default()
             },
-            AllocationCreateInfo { 
+            AllocationCreateInfo {
                 usage: MemoryUsage::Upload,
                 ..Default::default()
             },
-            font.flat_bitmaps()
-        ).unwrap();
+            font.flat_bitmaps(),
+        )
+        .unwrap();
 
         let vertex_buffer = Buffer::from_iter(
             &memory_allocator,
@@ -173,10 +160,9 @@ where
             uniform_buffer,
             vertex_buffer,
             bitmap_buffer,
-            font_meta: font.into()
+            font_meta: font.into(),
         }
     }
-
 
     pub fn draw(&self) -> SecondaryAutoCommandBuffer {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap().clone();
@@ -187,17 +173,24 @@ where
                 self.uniform_buffer,
                 (self.font_meta.clone(), fs::FONT_META_BINDING),
                 (*self.text_as_shader(), fs::TEXT_BINDING)
-            }.into_iter().chain([
-                    {
-                        let subbuffer = self.uniform_buffer.allocate_slice(self.text.len() as vulkano::DeviceSize).unwrap();
-                        subbuffer.write().unwrap().copy_from_slice(self.text.as_slice());
-                        WriteDescriptorSet::buffer(fs::TEXT_BINDING, subbuffer)
-                    },
-                    WriteDescriptorSet::buffer(fs::FONT_DATA_BINDING, self.bitmap_buffer.clone())
-                ]),
+            }
+            .into_iter()
+            .chain([
+                {
+                    let subbuffer = self
+                        .uniform_buffer
+                        .allocate_slice(self.text.len() as vulkano::DeviceSize)
+                        .unwrap();
+                    subbuffer
+                        .write()
+                        .unwrap()
+                        .copy_from_slice(self.text.as_slice());
+                    WriteDescriptorSet::buffer(fs::TEXT_BINDING, subbuffer)
+                },
+                WriteDescriptorSet::buffer(fs::FONT_DATA_BINDING, self.bitmap_buffer.clone()),
+            ]),
         )
         .unwrap();
-
 
         let mut builder = AutoCommandBufferBuilder::secondary(
             &self.cmdbuf_allocator,
@@ -254,11 +247,12 @@ where
         let chars;
 
         unsafe {
-            chars = std::slice::from_raw_parts(self.text.as_ptr() as *const _, TEXT_CELLS / 4).try_into().unwrap();
+            chars = std::slice::from_raw_parts(self.text.as_ptr() as *const _, TEXT_CELLS / 4)
+                .try_into()
+                .unwrap();
         }
 
         Box::new(fs::ShaderText { chars })
-
     }
 
     pub fn clear(&mut self) {
@@ -267,10 +261,16 @@ where
     }
 
     pub fn contents(&self) -> String {
-        self.text.chunks(80).flat_map(|l| {
-            let end = l.into_iter().position(|c| *c == 0).unwrap_or(80);
-            l[..end].iter().map(|b| char::try_from(*b).unwrap_or(char::REPLACEMENT_CHARACTER)).chain(['\n'])
-        }).collect()
+        self.text
+            .chunks(80)
+            .flat_map(|l| {
+                let end = l.into_iter().position(|c| *c == 0).unwrap_or(80);
+                l[..end]
+                    .iter()
+                    .map(|b| char::try_from(*b).unwrap_or(char::REPLACEMENT_CHARACTER))
+                    .chain(['\n'])
+            })
+            .collect()
     }
 }
 

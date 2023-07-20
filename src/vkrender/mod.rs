@@ -223,7 +223,7 @@ pub fn display_model(m: mesh::MeshData) {
         [0.0, 0.0],
         memory_allocator.clone(),
         command_buffer_allocator.clone(),
-        descriptor_set_allocator.clone()
+        descriptor_set_allocator.clone(),
     );
 
     object_system.register_object(m, glm::Mat4::identity());
@@ -242,9 +242,6 @@ pub fn display_model(m: mesh::MeshData) {
         &mut ui_system,
         &mut viewport,
     );
-
-    ui_system.clear();
-    eprintln!("{}", ui_system.contents());
 
     // initialization done!
 
@@ -357,9 +354,10 @@ pub fn display_model(m: mesh::MeshData) {
                     )
                     .unwrap()
                     .set_viewport(0, [viewport.clone()])
-
-                .execute_commands(object_system.draw(&cam)).unwrap()
-                .execute_commands(ui_system.draw()).unwrap();
+                    .execute_commands(object_system.draw(&cam))
+                    .unwrap()
+                    .execute_commands(ui_system.draw())
+                    .unwrap();
 
                 // additional passes would go here
                 builder.end_render_pass().unwrap();
@@ -415,7 +413,6 @@ fn initialize_based_on_window(
 
     object_system.regenerate(dimensions);
     ui_system.regenerate(dimensions);
-    
 
     let depth_buffer = ImageView::new_default(
         AttachmentImage::transient(memory_allocator, dimensions_u32, Format::D16_UNORM).unwrap(),

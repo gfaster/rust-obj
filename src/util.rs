@@ -16,7 +16,6 @@ macro_rules! log {
     };
 }
 
-
 /// implement error for a type using its [`Debug`][debug] implementation. This macro also
 /// implements [`Display`][display] for the type.
 ///
@@ -29,10 +28,9 @@ macro_rules! impl_error {
                 <Self as ::std::fmt::Debug>::fmt(&self, f)
             }
         }
-        impl ::std::error::Error for $item { }
+        impl ::std::error::Error for $item {}
     };
 }
-
 
 macro_rules! enum_variant_from {
     ($ty:ty, $variant:ident, $other:ty) => {
