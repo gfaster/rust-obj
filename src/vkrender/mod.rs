@@ -1,6 +1,7 @@
 pub mod init;
 pub mod render_systems;
 
+use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -174,6 +175,7 @@ pub fn display_model(m: mesh::MeshData) {
 
     let mut cam = Camera::new(1.0);
     let mut frame_nr: usize = 0;
+    let mut last_many_frames: VecDeque<std::time::Instant> = Default::default();
 
     let render_pass = vulkano::single_pass_renderpass!(
     device.clone(),
@@ -274,12 +276,17 @@ pub fn display_model(m: mesh::MeshData) {
             } => {
                 mouse_move(&mut cam, &delta);
             }
-            Event::RedrawEventsCleared => {
+            Event::MainEventsCleared => {
                 // do not draw if size is zero (eg minimized)
                 let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
                 let dimensions = window.inner_size();
                 if dimensions.width == 0 || dimensions.height == 0 {
                     return;
+                }
+
+                last_many_frames.push_front(std::time::Instant::now());
+                while last_many_frames.len() >= 500 {
+                    last_many_frames.pop_back();
                 }
 
                 // will cause a memory leak if not called every once in a while
@@ -332,6 +339,9 @@ pub fn display_model(m: mesh::MeshData) {
                 ui_system.clear();
                 writeln!(ui_system, "Frame nr: {}", frame_nr).unwrap();
                 frame_nr += 1;
+                writeln!(ui_system, "FPS: {:.1}", {
+                    (last_many_frames.len() - 1) as f32 / last_many_frames.front().unwrap().duration_since(*last_many_frames.back().unwrap()).as_secs_f32()
+                }).unwrap();
                 writeln!(ui_system, "Debug: {:#?}", viewport).unwrap();
 
                 let mut builder = AutoCommandBufferBuilder::primary(
