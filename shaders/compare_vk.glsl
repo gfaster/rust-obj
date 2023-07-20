@@ -18,10 +18,10 @@ void main()
     // FragColor = vec4(v_fragNorm, 0.0);
     // FragColor = vec4(v_texCoord, 0.0, 0.0);
     // FragColor = vec4(v_depth);
-    vec4 dummy = abs(subpassLoad(u_left) - subpassLoad(u_right));
     vec3 left = subpassLoad(u_left).xyz;
     vec3 right = subpassLoad(u_right).xyz;
-    FragColor = vec4(abs(left - right), 1.0);
+    vec3 diff = vec3(left - right);
+    FragColor = vec4(diff * diff, 1.0);
     // FragColor = abs(subpassLoad(u_right));
     // FragColor = abs(subpassLoad(u_left));
     // FragColor = vec4(vec3(0.0), 1.0);

@@ -31,9 +31,9 @@ fn main() {
     let obj = wavefrontobj::load(input).expect("pass a valid file path");
     // dbg!(obj.tris().collect::<Vec<_>>());
 
-    renderer::display_model(obj);
+    //renderer::display_model(obj);
     // screenshots(obj);
-    // screenshots_compare(obj);
+    screenshots_compare(obj);
 
     // let orbit_amt = glm::vec2(0.1, 0.0);
     // depth_classify::dual_render::display_duel_render(obj, orbit_amt);
@@ -53,7 +53,7 @@ fn screenshots(obj: mesh::MeshData) {
 }
 
 fn screenshots_compare(obj: mesh::MeshData) {
-    let cnt = 4;
+    let cnt = 32;
     let diff = 0.1;
     let v = Vec::from_iter((0..cnt).map(|i| {
         let theta = i as f32 * core::f32::consts::TAU / cnt as f32;
@@ -62,9 +62,9 @@ fn screenshots_compare(obj: mesh::MeshData) {
             glm::vec3((theta + diff).cos() * 3.0, 0.0, (theta + diff).sin() * 3.0),
         ]
     }));
-    let paths = depth_classify::dual_render::depth_compare(obj, (512, 512), &v);
-    for path in paths {
-        print!("{} ", path);
+    let prmses = depth_classify::dual_render::depth_compare(obj, (512, 512), &v);
+    for prmse in prmses {
+        print!("{} ", prmse);
     }
     println!();
 }

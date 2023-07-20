@@ -66,4 +66,5 @@ void main()
     }
 
     FragColor = color_correct(diffuse(base_color.xyz));
+    FragColor = depth_buffer();
 }

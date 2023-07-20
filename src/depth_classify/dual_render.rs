@@ -41,10 +41,10 @@ use crate::glm::Vec3;
 use crate::mesh::{MeshData, MeshDataBuffs};
 
 use crate::vkrender::init::initialize_device_window;
-use crate::vkrender::render_systems::object_system::ObjectSystem;
+use crate::vkrender::render_systems::object_system::{ObjectSystem, ObjectSystemRenderMode, ObjectSystemConfig};
 use crate::vkrender::{screenshot_dir, VkVertex};
 
-pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<String> {
+pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32> {
     // I'm using the Vulkano examples to learn here
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/triangle.rs
     //
@@ -240,7 +240,11 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
 
     let dimensions = [dim.0 as f32, dim.1 as f32];
     // need 2 because they are on different subpasses
-    let mut object_system_left = ObjectSystem::new(
+    let mut object_system_left = ObjectSystem::new_with_config(
+        ObjectSystemConfig {
+            render_mode: ObjectSystemRenderMode::Depth,
+            ..Default::default()
+        },
         queue.clone(),
         Subpass::from(render_pass.clone(), 0).unwrap(),
         dimensions,
@@ -248,7 +252,11 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
         command_buffer_allocator.clone(),
         descriptor_set_allocator.clone(),
     );
-    let mut object_system_right = ObjectSystem::new(
+    let mut object_system_right = ObjectSystem::new_with_config(
+        ObjectSystemConfig {
+            render_mode: ObjectSystemRenderMode::Depth,
+            ..Default::default()
+        },
         queue.clone(),
         Subpass::from(render_pass.clone(), 1).unwrap(),
         dimensions,
@@ -354,11 +362,19 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<Str
             img_num,
             screenshot_format.extensions_str()[0]
         );
+        // todo: change to get pixel root mse
+        /*
         Rgba32FImage::from_raw(dim.0, dim.1, buffer_content.to_vec())
             .unwrap()
             .save_with_format(&file, screenshot_format)
             .unwrap();
         ret.push(file)
+        */
+
+        let prmse = buffer_content.iter().filter(|p| p > &&0.0).sum::<f32>() / 
+        buffer_content.iter().filter(|p| p > &&0.0).count() as f32;
+
+        ret.push(prmse);
     }
 
     ret
