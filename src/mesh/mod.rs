@@ -25,7 +25,7 @@ struct VertexDeindex<'a> {
     pub tex: Option<&'a Vec2>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Vertex {
     pub pos: Vec3,
     pub normal: Vec3,
@@ -83,6 +83,20 @@ where
             };
         }
 
+        ret
+    }
+}
+
+impl MeshData
+{
+    pub fn to_tri_list<Vtx>(&self) -> Vec<Vtx> 
+    where Vtx: std::convert::From<Vertex> + Clone
+    {
+        let mut ret = Vec::new();
+        for tri in self.tris() {
+            let tri_slice: [Vtx; 3] = tri.into();
+            ret.extend_from_slice(&tri_slice)
+        }
         ret
     }
 }

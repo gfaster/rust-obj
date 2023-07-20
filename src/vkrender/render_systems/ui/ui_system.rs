@@ -1,9 +1,11 @@
 //! I think this is mostly superflous, but I'm basically doing this because it's a neat exercise
 
 use std::cell::Cell;
+use std::io::{BufRead, BufReader, Write};
+use std::mem::size_of;
 use std::sync::Arc;
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
-use vulkano::buffer::BufferUsage;
+use vulkano::buffer::{BufferUsage, Buffer, BufferCreateInfo, BufferCreateFlags};
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
     PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, SecondaryAutoCommandBuffer,
@@ -12,6 +14,7 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
 use vulkano::image::{ImageDimensions, ImmutableImage};
+use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage};
 use vulkano::pipeline::graphics::color_blend::ColorBlendState;
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::vertex_input::Vertex;
@@ -39,6 +42,7 @@ use crate::{
 
 use crate::vkrender::VkVertex;
 
+const TEXT_CELLS: usize = 2400;
 
 /// Basic text rendering
 ///
@@ -53,17 +57,11 @@ pub struct UiSystem<Allocator>
 where
     Arc<Allocator>: MemoryAllocator,
 {
-    text: Box<[u32; 2400]>,
+    text: Box<[u32; TEXT_CELLS]>,
+    cursor: usize,
+    font_meta: fs::ShaderFontMeta,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
-
-    /// command buffer for textures that need to be uploaded to the GPU. uploading happens on draw,
-    /// if there are any pending
-    upload_cmdbuf: Cell<
-        Option<
-            AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
-        >,
-    >,
 
     /// various necessary vulkano components
     gfx_queue: Arc<Queue>,
@@ -74,8 +72,10 @@ where
     /// the subbuffer allocator is owned because I think it may be better for reducing
     /// fragmentation
     uniform_buffer: SubbufferAllocator<Arc<Allocator>>,
-    vertex_buffer: Subbuffer<[VkVertex]>
+    vertex_buffer: Subbuffer<[VkVertex]>,
+    bitmap_buffer: Subbuffer<[u32]>
 }
+
 
 macro_rules! subbuffer_write_descriptors {
     ($uniform:expr, $(($data:expr, $binding:expr)),*) => {
@@ -92,7 +92,6 @@ impl<Allocator> UiSystem<Allocator>
 where
     Arc<Allocator>: MemoryAllocator
 {
-    
     pub fn new(
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
@@ -112,8 +111,38 @@ where
             },
         );
 
-        let frame_mesh = Into::<MeshDataBuffs<VkVertex>>::into(crate::mesh::primative::frame());
-        let (vertex_buffer, _) = frame_mesh.to_buffers(&memory_allocator);
+        let bdf = include_str!("../../../../assets/ter-u12b.bdf");
+        let mut reader = BufReader::new(bdf.as_bytes());
+        let font = super::font::Font::parse_bdf(&mut reader).unwrap_or_else(|e| {
+            panic!("{}", e)
+        });
+
+        let bitmap_buffer = Buffer::from_iter(
+            &memory_allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo { 
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            },
+            font.flat_bitmaps()
+        ).unwrap();
+
+        let vertex_buffer = Buffer::from_iter(
+            &memory_allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::VERTEX_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            },
+            crate::mesh::primative::frame().to_tri_list(),
+        )
+        .unwrap();
 
         let pipeline = GraphicsPipeline::start()
             .render_pass(subpass.clone())
@@ -128,12 +157,13 @@ where
                     depth_range: 0.0..1.0,
                 },
             ]))
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
+            .depth_stencil_state(DepthStencilState::disabled())
             .build(gfx_queue.device().clone())
             .unwrap();
 
         Self {
-            text: Box::new([0; 2400]),
+            text: Box::new([0 as u32; 2400]),
+            cursor: 0,
             pipeline,
             subpass,
             cmdbuf_allocator: command_buffer_allocator,
@@ -142,31 +172,32 @@ where
             gfx_queue,
             uniform_buffer,
             vertex_buffer,
-            upload_cmdbuf: None.into(),
+            bitmap_buffer,
+            font_meta: font.into()
         }
     }
 
-    pub fn draw(&self, cam: &Camera) -> SecondaryAutoCommandBuffer {
+
+    pub fn draw(&self) -> SecondaryAutoCommandBuffer {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap().clone();
         let set = PersistentDescriptorSet::new(
             &self.descset_allocator,
             layout,
             subbuffer_write_descriptors! {
                 self.uniform_buffer,
-            },
+                (self.font_meta.clone(), fs::FONT_META_BINDING),
+                (*self.text_as_shader(), fs::TEXT_BINDING)
+            }.into_iter().chain([
+                    {
+                        let subbuffer = self.uniform_buffer.allocate_slice(self.text.len() as vulkano::DeviceSize).unwrap();
+                        subbuffer.write().unwrap().copy_from_slice(self.text.as_slice());
+                        WriteDescriptorSet::buffer(fs::TEXT_BINDING, subbuffer)
+                    },
+                    WriteDescriptorSet::buffer(fs::FONT_DATA_BINDING, self.bitmap_buffer.clone())
+                ]),
         )
         .unwrap();
 
-        self.upload_cmdbuf.take().map(|c| {
-            log!("uploading font");
-            c.build().unwrap().execute(self.gfx_queue.clone())
-        });
-
-        let sampler = Sampler::new(
-            self.gfx_queue.device().clone(),
-            SamplerCreateInfo::simple_repeat_linear(),
-        )
-        .unwrap();
 
         let mut builder = AutoCommandBufferBuilder::secondary(
             &self.cmdbuf_allocator,
@@ -217,6 +248,63 @@ where
 
         self.pipeline = pipeline;
     }
+
+    fn text_as_shader(&self) -> Box<fs::ShaderText> {
+        assert_eq!(size_of::<fs::ShaderText>(), size_of::<[u32; TEXT_CELLS]>());
+        let chars;
+
+        unsafe {
+            chars = std::slice::from_raw_parts(self.text.as_ptr() as *const _, TEXT_CELLS / 4).try_into().unwrap();
+        }
+
+        Box::new(fs::ShaderText { chars })
+
+    }
+
+    pub fn clear(&mut self) {
+        self.cursor = 0;
+        self.text.fill(0);
+    }
+
+    pub fn contents(&self) -> String {
+        self.text.chunks(80).flat_map(|l| {
+            let end = l.into_iter().position(|c| *c == 0).unwrap_or(80);
+            l[..end].iter().map(|b| char::try_from(*b).unwrap_or(char::REPLACEMENT_CHARACTER)).chain(['\n'])
+        }).collect()
+    }
+}
+
+impl<Allocator> Write for UiSystem<Allocator>
+where
+    Arc<Allocator>: MemoryAllocator,
+{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut len = 0;
+
+        for byte in buf {
+            if self.cursor >= TEXT_CELLS {
+                break;
+            }
+            let x = self.cursor % 80;
+
+            if byte.is_ascii() && !byte.is_ascii_control() {
+                self.text[self.cursor] = *byte as u32;
+                self.cursor += 1;
+            } else if *byte == b'\n' {
+                self.cursor += 80 - x;
+            } else {
+                self.text[self.cursor] = 0;
+                self.cursor += 1;
+            }
+            len += 1;
+        }
+
+        Ok(len)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 pub mod vs {
@@ -226,21 +314,37 @@ pub mod vs {
         linalg_type: "nalgebra",
         custom_derives: [Debug]
     }
-
-    // TODO: this might be revealed after entry point is added
-    pub const MAT_BINDING: u32 = 0;
-    pub const CAM_BINDING: u32 = 1;
 }
 pub mod fs {
+    use crate::vkrender::render_systems::ui::font::Font;
+
     vulkano_shaders::shader! {
         ty: "fragment",
         path: "shaders/text_vk.glsl",
         linalg_type: "nalgebra",
-        custom_derives: [Debug]
+        custom_derives: [Debug, Clone]
     }
 
-    // TODO: this might be revealed after entry point is added
-    pub const FONT_BINDING: u32 = 2;
-    pub const TEXT_BINDING: u32 = 3;
-    pub const SCREEN_BINDING: u32 = 4;
+    impl From<Font> for ShaderFontMeta {
+        fn from(value: Font) -> Self {
+            Self {
+                bbx_x: value.bbx[0],
+                bbx_y: value.bbx[1],
+                bbx_off_x: value.bbx[2],
+                bbx_off_y: value.bbx[3],
+                dwidth_x: value.bbx[0],
+                dwidth_y: value.bbx[1],
+                pixel_width: value.bbx[0],
+                pixel_height: value.bbx[1],
+                bytes_per_row: 1,
+                bytes_per_glyph: value.bbx[1],
+                size: 12.0.into(),
+            }
+        }
+    }
+
+    pub const FONT_META_BINDING: u32 = 0;
+    pub const SCREEN_BINDING: u32 = 1;
+    pub const TEXT_BINDING: u32 = 2;
+    pub const FONT_DATA_BINDING: u32 = 3;
 }

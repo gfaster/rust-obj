@@ -1,15 +1,17 @@
-use std::{io::BufRead, str::FromStr, num::ParseIntError};
+use std::{io::BufRead, str::FromStr, num::ParseIntError, rc::Rc};
 
-struct Font {
+pub struct Font {
     bitmap: Vec<Option<Vec<u32>>>,
-    bbx: [i32; 4],
-    size: [u32; 3],
-    s_size: u32
+
+    /// `[w, h, off_x, off_y]`
+    pub bbx: [i32; 4],
+    pub size: [u32; 3],
+    // s_size: u32
 }
 
 #[derive(Debug)]
 #[non_exhaustive]
-enum FontParseError {
+pub enum FontParseError {
     UnexpectedDirective,
     NoStartfontDirective,
     PrematureEndProperties,
@@ -28,6 +30,7 @@ enum_variant_from!(FontParseError, ParseIntError, ParseIntError);
 
 
 
+#[derive(Debug)]
 enum ReadState {
     Row(u32),
     CharProperties,
@@ -67,23 +70,25 @@ fn unwrap_property<T>(item: &Option<T>) -> Result<&T, FontParseError> {
 }
 
 impl Font {
-    fn parse_bdf(reader: &mut impl BufRead) -> Result<Self, FontParseError> {
+    pub fn parse_bdf(reader: &mut impl BufRead) -> Result<Self, FontParseError> {
         let mut line = String::new();
         let mut state = ReadState::Start;
 
         let mut bbx: Option<[i32; 4]> = None;
-        let mut size: Option<[i32; 3]> = None;
+        let mut size: Option<[u32; 3]> = None;
         let mut encoding: Option<u8> = None;
         let mut chars: Option<u32> = None;
         let mut bitmaps: Vec<Option<Vec<u32>>> = vec![None; 256];
 
         while 0 != reader.read_line(&mut line)? {
+            // dbg!((&line, &state, &chars));
             let tokens: Vec<_> = line.split_whitespace().collect();
             match state {
                 ReadState::Row(r) => {
                     match &tokens[..] {
                         [] | ["COMMENT", ..] => (),
                         ["ENDCHAR"] if r == 0 => {
+                            chars = Some(chars.ok_or(FontParseError::UnexpectedDirective)? - 1);
                             encoding = None;
                             state = ReadState::Chars;
                         },
@@ -107,6 +112,9 @@ impl Font {
                             expect_unset(&mut encoding)?;
                             state = ReadState::CharProperties
                         },
+                        ["ENDFONT"] if chars == Some(0) => {
+                            break;
+                        }
                         _ => return Err(FontParseError::UnexpectedDirective)
                     }
                 }
@@ -128,6 +136,7 @@ impl Font {
                             *expect_unset(&mut encoding)? = Some(val.parse()?);
                         },
                         ["BITMAP"] => {
+                            bitmaps[*unwrap_property(&encoding)? as usize] = Some(Vec::with_capacity(unwrap_property(&bbx)?[1] as usize));
                             state = ReadState::Row(unwrap_property(&bbx)?[1] as u32, )
                         },
                         _ => return Err(FontParseError::UnexpectedDirective)
@@ -136,17 +145,19 @@ impl Font {
                 ReadState::FontProperties => {
                     match &tokens[..] {
                         [] | ["COMMENT", ..] => (),
-                        ["STARTFONTPROPERTIES", count] => {
+                        ["STARTPROPERTIES", count] => {
                             let count = count.parse()?;
                             state = ReadState::ExtProperties(count);
                         },
                         ["FONTBOUNDINGBOX", w, h, x, y] => {
                             *expect_unset(&mut bbx)? = Some([w.parse()?, h.parse()?, x.parse()?, y.parse()?]);
                         }
+                        ["FONT", ..] => (),
                         ["SIZE", points, x_res, y_res] => {
                             *expect_unset(&mut size)? = Some([points.parse()?, x_res.parse()?, y_res.parse()?]);
                         },
                         ["CHARS", cnt] => {
+                            state = ReadState::Chars;
                             *expect_unset(&mut chars)? = Some(cnt.parse()?);
                         }
                         _ => return Err(FontParseError::UnexpectedDirective)
@@ -183,8 +194,31 @@ impl Font {
                     }
                 }
             }
+
+            line.clear();
         }
 
-        todo!()
+        Ok(Font {
+            bitmap: bitmaps,
+            bbx: *unwrap_property(&bbx)?,
+            size: *unwrap_property(&size)?,
+        })
+    }
+
+    pub fn flat_bitmaps(&self) -> Vec<u32>
+    {
+        // let blank = vec![0xF0F0F0; self.bbx[1] as usize];
+        let blank = vec![0x0; self.bbx[1] as usize];
+        // dbg!(&self.bitmap);
+
+        self.bitmap.iter().flat_map(|c| {
+            match c {
+                Some(v) => &v[..],
+                None => &blank
+            }
+            // &blank
+        }).map(
+                |b| *b
+            ).collect()
     }
 }

@@ -8,6 +8,7 @@ pub struct Tri {
     v: [Vertex; 3],
 }
 
+
 impl Index<usize> for Tri {
     type Output = Vertex;
 
@@ -28,9 +29,9 @@ impl From<[Vertex; 3]> for Tri {
     }
 }
 
-impl From<Tri> for [Vertex; 3] {
+impl<Vtx> From<Tri> for [Vtx; 3] where Vtx: From<Vertex> {
     fn from(value: Tri) -> Self {
-        value.v
+        [value.v[0].into(), value.v[1].into(), value.v[2].into()]
     }
 }
 

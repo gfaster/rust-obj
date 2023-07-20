@@ -1,6 +1,7 @@
 pub mod init;
 pub mod render_systems;
 
+use std::io::Write;
 use std::sync::Arc;
 
 use image::Rgba32FImage;
@@ -44,6 +45,8 @@ use crate::glm::Vec3;
 use crate::mesh::{self, MeshData, MeshDataBuffs};
 use crate::vkrender::init::initialize_device;
 use render_systems::object_system::ObjectSystem;
+
+use self::render_systems::ui_system::UiSystem;
 
 pub mod consts {
     use nalgebra::ArrayStorage;
@@ -170,6 +173,7 @@ pub fn display_model(m: mesh::MeshData) {
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
     let mut cam = Camera::new(1.0);
+    let mut frame_nr: usize = 0;
 
     let render_pass = vulkano::single_pass_renderpass!(
     device.clone(),
@@ -213,6 +217,15 @@ pub fn display_model(m: mesh::MeshData) {
         descriptor_set_allocator.clone(),
     );
 
+    let mut ui_system = UiSystem::new(
+        queue.clone(),
+        Subpass::from(render_pass.clone(), 0).unwrap(),
+        [0.0, 0.0],
+        memory_allocator.clone(),
+        command_buffer_allocator.clone(),
+        descriptor_set_allocator.clone()
+    );
+
     object_system.register_object(m, glm::Mat4::identity());
 
     let mut viewport = Viewport {
@@ -226,8 +239,12 @@ pub fn display_model(m: mesh::MeshData) {
         &images,
         render_pass.clone(),
         &mut object_system,
+        &mut ui_system,
         &mut viewport,
     );
+
+    ui_system.clear();
+    eprintln!("{}", ui_system.contents());
 
     // initialization done!
 
@@ -290,6 +307,7 @@ pub fn display_model(m: mesh::MeshData) {
                         &new_images,
                         render_pass.clone(),
                         &mut object_system,
+                        &mut ui_system,
                         &mut viewport,
                     );
                     framebuffers = new_framebuffers;
@@ -314,6 +332,11 @@ pub fn display_model(m: mesh::MeshData) {
                     recreate_swapchain = true;
                 }
 
+                ui_system.clear();
+                writeln!(ui_system, "Frame nr: {}", frame_nr).unwrap();
+                frame_nr += 1;
+                writeln!(ui_system, "Debug: {:#?}", viewport).unwrap();
+
                 let mut builder = AutoCommandBufferBuilder::primary(
                     &command_buffer_allocator,
                     queue.queue_family_index(),
@@ -333,9 +356,10 @@ pub fn display_model(m: mesh::MeshData) {
                         SubpassContents::SecondaryCommandBuffers,
                     )
                     .unwrap()
-                    .set_viewport(0, [viewport.clone()]);
+                    .set_viewport(0, [viewport.clone()])
 
-                builder.execute_commands(object_system.draw(&cam)).unwrap();
+                .execute_commands(object_system.draw(&cam)).unwrap()
+                .execute_commands(ui_system.draw()).unwrap();
 
                 // additional passes would go here
                 builder.end_render_pass().unwrap();
@@ -377,6 +401,7 @@ fn initialize_based_on_window(
     images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
     object_system: &mut ObjectSystem<StandardMemoryAllocator>,
+    ui_system: &mut UiSystem<StandardMemoryAllocator>,
     viewport: &mut Viewport,
 ) -> Vec<Arc<Framebuffer>> {
     let dimensions_u32 = images[0].dimensions().width_height();
@@ -389,6 +414,8 @@ fn initialize_based_on_window(
     };
 
     object_system.regenerate(dimensions);
+    ui_system.regenerate(dimensions);
+    
 
     let depth_buffer = ImageView::new_default(
         AttachmentImage::transient(memory_allocator, dimensions_u32, Format::D16_UNORM).unwrap(),
