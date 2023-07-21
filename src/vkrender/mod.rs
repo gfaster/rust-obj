@@ -243,6 +243,7 @@ pub fn display_model(m: mesh::MeshData) {
         &mut object_system,
         &mut ui_system,
         &mut viewport,
+        &mut cam,
     );
 
     // initialization done!
@@ -313,6 +314,7 @@ pub fn display_model(m: mesh::MeshData) {
                         &mut object_system,
                         &mut ui_system,
                         &mut viewport,
+                        &mut cam,
                     );
                     framebuffers = new_framebuffers;
                     recreate_swapchain = false;
@@ -340,8 +342,14 @@ pub fn display_model(m: mesh::MeshData) {
                 writeln!(ui_system, "Frame nr: {}", frame_nr).unwrap();
                 frame_nr += 1;
                 writeln!(ui_system, "FPS: {:.1}", {
-                    (last_many_frames.len() - 1) as f32 / last_many_frames.front().unwrap().duration_since(*last_many_frames.back().unwrap()).as_secs_f32()
-                }).unwrap();
+                    (last_many_frames.len() - 1) as f32
+                        / last_many_frames
+                            .front()
+                            .unwrap()
+                            .duration_since(*last_many_frames.back().unwrap())
+                            .as_secs_f32()
+                })
+                .unwrap();
                 writeln!(ui_system, "Debug: {:#?}", viewport).unwrap();
 
                 let mut builder = AutoCommandBufferBuilder::primary(
@@ -411,6 +419,7 @@ fn initialize_based_on_window(
     object_system: &mut ObjectSystem<StandardMemoryAllocator>,
     ui_system: &mut UiSystem<StandardMemoryAllocator>,
     viewport: &mut Viewport,
+    cam: &mut Camera,
 ) -> Vec<Arc<Framebuffer>> {
     let dimensions_u32 = images[0].dimensions().width_height();
     let dimensions = [dimensions_u32[0] as f32, dimensions_u32[1] as f32];
@@ -420,6 +429,8 @@ fn initialize_based_on_window(
         dimensions,
         depth_range: 0.0..1.0,
     };
+
+    cam.aspect = dimensions[0] / dimensions[1];
 
     object_system.regenerate(dimensions);
     ui_system.regenerate(dimensions);

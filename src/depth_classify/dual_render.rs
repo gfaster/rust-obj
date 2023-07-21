@@ -41,7 +41,9 @@ use crate::glm::Vec3;
 use crate::mesh::{MeshData, MeshDataBuffs};
 
 use crate::vkrender::init::initialize_device_window;
-use crate::vkrender::render_systems::object_system::{ObjectSystem, ObjectSystemConfig, ObjectSystemRenderMode};
+use crate::vkrender::render_systems::object_system::{
+    ObjectSystem, ObjectSystemConfig, ObjectSystemRenderMode,
+};
 use crate::vkrender::{screenshot_dir, VkVertex};
 
 pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32> {
@@ -120,14 +122,14 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         color_1: {
             load: Clear,
             store: DontCare,
-            format: image_format,
+            format: INTERMEDIATE_IMAGE_FORMAT,
             samples: 1,
         },
 
         color_2: {
             load: Clear,
             store: DontCare,
-            format: image_format,
+            format: INTERMEDIATE_IMAGE_FORMAT,
             samples: 1,
         },
         depth_1: {
@@ -302,8 +304,8 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
                 RenderPassBeginInfo {
                     clear_values: vec![
                         Some([0.0, 0.0, 0.0, 1.0].into()),
-                        Some([1.0, 1.0, 1.0, 1.0].into()),
-                        Some([1.0, 1.0, 1.0, 1.0].into()),
+                        Some([99.0, 99.0, 99.0, 1.0].into()),
+                        Some([99.0, 99.0, 99.0, 1.0].into()),
                         Some(1.0.into()),
                         Some(1.0.into()),
                     ],
@@ -371,16 +373,23 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         ret.push(file)
         */
 
-        let prmse = buffer_content.iter().filter(|p| p > &&0.0).sum::<f32>() / 
-        buffer_content.iter().filter(|p| p > &&0.0).count() as f32;
+        let valid = buffer_content
+            .chunks(4)
+            .map(|s| s[0])
+            .filter(|p| p > &&0.0)
+            .collect::<Vec<_>>();
+        let prmse =
+            (valid.iter().map(|x| *x as f64).sum::<f64>() / valid.len() as f64).sqrt() as f32;
 
         ret.push(prmse);
+
+        log!("capture {} complete", img_num);
     }
 
     ret
 }
 
-const INTERMEDIATE_IMAGE_FORMAT: Format = vulkano::format::Format::R32G32B32A32_SFLOAT;
+const INTERMEDIATE_IMAGE_FORMAT: Format = vulkano::format::Format::R32_SFLOAT;
 pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
     let (device, queue, surface, event_loop) = initialize_device_window(DeviceExtensions {
         khr_swapchain: true,
@@ -439,13 +448,12 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
     };
 
     let mut cam = Camera::new(1.0);
-    
 
     let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
         attachments: {
         final_color: {
-            load: Clear,
+            load: DontCare,
             store: Store,
             format: swapchain.image_format(),
             samples: 1,
@@ -656,8 +664,8 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                         RenderPassBeginInfo {
                             clear_values: vec![
                                 Some([0.0, 0.0, 0.0, 1.0].into()),
-                                Some([1.0, 1.0, 1.0, 1.0].into()),
-                                Some([1.0, 1.0, 1.0, 1.0].into()),
+                                Some([99.0, 99.0, 99.0, 1.0].into()),
+                                Some([99.0, 99.0, 99.0, 1.0].into()),
                                 Some(1.0.into()),
                                 Some(1.0.into()),
                             ],
@@ -839,8 +847,9 @@ fn initialize_based_on_window(
 
 mod cmp_fs {
     vulkano_shaders::shader! {
+        define: [("OUT_FORMAT", "float")],
         ty: "fragment",
-        path: "shaders/compare_vk.glsl"
+        path: "shaders/compare_vk.glsl",
     }
 }
 

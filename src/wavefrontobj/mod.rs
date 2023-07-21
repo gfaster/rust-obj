@@ -182,7 +182,7 @@ pub fn load(path: impl AsRef<Path>) -> std::io::Result<mesh::MeshData> {
     }
 
     match curr_mat {
-        None => (),
+        None => objmesh.set_material(Material::new()),
         Some(mat) => objmesh.set_material(
             mtl_registry
                 .get(&mat)

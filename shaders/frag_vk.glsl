@@ -1,6 +1,6 @@
 #version 460
 
-layout(location = 0) out vec4 FragColor;
+layout(location = 0) out float FragColor;
 
 layout(location = 0) in vec3 v_fragPos;
 layout(location = 1) in vec3 v_fragNorm;
@@ -66,6 +66,6 @@ void main()
         discard;
     }
 
-    FragColor = color_correct(diffuse(base_color.xyz));
-    FragColor = depth_buffer();
+    vec4 temp = color_correct(diffuse(base_color.xyz));
+    FragColor = depth_buffer().x;
 }

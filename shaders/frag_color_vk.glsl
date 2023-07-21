@@ -32,6 +32,9 @@ layout(set = 1, binding = 4) uniform sampler2D s_tex;
 vec4 diffuse(vec3 base_color) {
 
     vec3 norm = normalize(v_fragNorm);
+    if (dot(normalize(v_camPos - v_fragPos), norm) < 0.0) {
+        norm *= -1;
+    }
     vec3 light_dir = normalize(Light.light_pos - v_fragPos);
     vec3 reflect_dir = reflect(-light_dir, norm);
 
@@ -72,5 +75,5 @@ void main()
     }
 
 
-    FragColor = color_correct(diffuse(base_color.xyz * 0.01));
+    FragColor = color_correct(diffuse(base_color.xyz * 0.5));
 }

@@ -303,11 +303,11 @@ where
         let fs;
         match self.render_mode {
             ObjectSystemRenderMode::Depth => {
-            log!("regenerating with depth...");
+                log!("regenerating with depth...");
                 fs = fs::load_depth(self.gfx_queue.device().clone()).unwrap()
             }
             ObjectSystemRenderMode::Color => {
-            log!("regenerating with color...");
+                log!("regenerating with color...");
                 fs = fs::load_color(self.gfx_queue.device().clone()).unwrap()
             }
         }
@@ -438,9 +438,9 @@ fn generate_uniforms_0(cam: &Camera) -> (fs::ShaderLight, vs::ShaderCamAttr) {
     };
 
     let light = fs::ShaderLight {
-        light_pos: cam.pos,
-        ambient_strength: 0.1,
-        light_strength: 40.0,
+        light_pos: glm::vec3(10.0, 10.0, 0.0),
+        ambient_strength: 0.2,
+        light_strength: 10.0,
     };
 
     (light, cam_attr)
