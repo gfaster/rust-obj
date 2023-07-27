@@ -46,8 +46,6 @@ use crate::vkrender::render_systems::object_system::{
 };
 use crate::vkrender::{screenshot_dir, VkVertex};
 
-use vkfft::config::Config;
-
 pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32> {
     // I'm using the Vulkano examples to learn here
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/triangle.rs
@@ -360,13 +358,14 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         future.wait(None).unwrap();
 
         let buffer_content = transfer_buffer.read().unwrap();
-        /* todo: readd saving pictures functionality
         let file = format!(
             "{}/{}.{}",
             dir,
             img_num,
             screenshot_format.extensions_str()[0]
         );
+        // todo: change to get pixel root mse
+        /*
         Rgba32FImage::from_raw(dim.0, dim.1, buffer_content.to_vec())
             .unwrap()
             .save_with_format(&file, screenshot_format)
@@ -374,38 +373,17 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         ret.push(file)
         */
 
-        /* prmse stuff
         let valid = buffer_content
             .chunks(4)
             .map(|s| s[0])
             .filter(|p| p > &&0.0)
             .collect::<Vec<_>>();
         let prmse =
-            (valid.iter().map(|x| *x.powi(2) as f64).sum::<f64>() / valid.len() as f64).sqrt() as f32;
+            (valid.iter().map(|x| *x as f64).sum::<f64>() / valid.len() as f64).sqrt() as f32;
 
         ret.push(prmse);
 
         log!("capture {} complete", img_num);
-        */
-
-        // fft stuff
-        /*
-        let config = Config::builder()
-            .physical_device(context.physical)
-            .device(context.device.clone())
-            .fence(&context.fence)
-            .queue(context.queue.clone())
-            .buffer(kernel.clone())
-            .command_pool(context.pool.clone())
-            .kernel_convolution()
-            .normalize()
-            .coordinate_features(coordinate_features)
-            .batch_count(1)
-            .r2c()
-            .disable_reorder_four_step()
-            .dim(&size)
-            .build()?;
-        */
     }
 
     ret
