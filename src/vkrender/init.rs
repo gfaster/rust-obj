@@ -106,7 +106,9 @@ pub fn initialize_device(device_extensions: DeviceExtensions) -> (Arc<Device>, A
     let (physical_device, queue_family_index) = instance
         .enumerate_physical_devices()
         .unwrap()
+        // .inspect(|p| eprintln!("{p:#?}"))
         .filter(|p| p.supported_extensions().contains(&device_extensions))
+        .filter(|p| p.api_version() >= vulkano::Version::V1_1)
         .filter_map(|p| {
             p.queue_family_properties()
                 .iter()

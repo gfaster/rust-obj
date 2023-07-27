@@ -13,7 +13,7 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 
 use vulkano::device::{DeviceExtensions, DeviceOwned};
 use vulkano::format::Format;
-use vulkano::image::view::ImageView;
+use vulkano::image::view::{ImageView, ImageViewCreateInfo};
 use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, StorageImage, SwapchainImage};
 
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
@@ -21,7 +21,7 @@ use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
 use vulkano::pipeline::graphics::vertex_input::Vertex;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
-use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
+use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint, ComputePipeline};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 
 use vulkano::shader::ShaderModule;
@@ -59,6 +59,9 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         // for saving back to CPU memory
         khr_storage_buffer_storage_class: true,
 
+        ext_shader_atomic_float: true,
+        // ext_shader_atomic_float2: true,
+
         // for blending
         // I am not using this for now because of the lack of wrapper in Vulkano - there are some
         // extra invariants that using the extension requires.
@@ -86,27 +89,48 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
     )
     .unwrap();
 
-    let transfer_buffer = Buffer::from_iter(
+    {
+        // hacky way to make sure there is no padding
+        fn shader_compute_horrible_hack(data: &cmp_cs::ShaderComputeData) -> f32 {
+            data.data[0]
+        }
+    }
+
+    let device_local_render = Buffer::new_slice::<f32>(
         &memory_allocator,
         BufferCreateInfo {
             usage: BufferUsage::TRANSFER_DST,
             ..Default::default()
         },
         AllocationCreateInfo {
-            usage: MemoryUsage::Upload,
+            usage: MemoryUsage::DeviceOnly,
             ..Default::default()
         },
-        (0..dim.0
-            * dim.1
-            * (image_format.block_size().unwrap() / std::mem::size_of::<f32>() as u64) as u32)
-            .map(|_| 0f32),
+        (dim.0 * dim.1) as u64
+            * (image_format.block_size().unwrap() / std::mem::size_of::<f32>() as u64)
     )
     .unwrap();
+
+    let result_buffer = Buffer::from_data::<cmp_cs::ShaderComputeResult>(
+        &memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        }, 
+        AllocationCreateInfo { 
+            usage: MemoryUsage::Download,
+            ..Default::default()
+        },
+        cmp_cs::ShaderComputeResult{ result: 0.0 }
+    ).unwrap();
+
 
     let fs_cmp = cmp_fs::load(device.clone()).unwrap();
     let fs_cmp_entry = fs_cmp.entry_point("main").unwrap();
     let vs_cmp = cmp_vs::load(device.clone()).unwrap();
     let vs_cmp_entry = vs_cmp.entry_point("main").unwrap();
+    let cs_cmp = cmp_cs::load(device.clone()).unwrap_or_else(|e| panic!("{e}"));
+    let cs_cmp_entry = cs_cmp.entry_point("main").unwrap();
 
     // now to initialize the pipelines - this is completely foreign to opengl
     let render_pass = vulkano::ordered_passes_renderpass!(
@@ -216,8 +240,18 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         .build(memory_allocator.device().clone())
         .unwrap();
 
+    let pipeline_compute = ComputePipeline::new(
+        device.clone(),
+        cs_cmp_entry, 
+        &(),
+        None,
+        |_| {}
+    ).unwrap();
+
+
+    let view = ImageView::new_default(image.clone()).unwrap();
+
     let framebuffer = {
-        let view = ImageView::new_default(image.clone()).unwrap();
         Framebuffer::new(
             render_pass.clone(),
             render_pass::FramebufferCreateInfo {
@@ -274,8 +308,6 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
 
     // initialization done!
 
-    let screenshot_format = image::ImageFormat::OpenExr;
-    let dir = screenshot_dir().unwrap();
     let mut ret = vec![];
     for (img_num, pos_pair) in pos.iter().enumerate() {
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -296,6 +328,18 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
                 ],
             )
             .unwrap()
+        };
+
+        let layout_compute = pipeline_compute.layout().set_layouts().get(0).unwrap();
+        let set_compute = {
+            PersistentDescriptorSet::new(
+                &descriptor_set_allocator,
+                layout_compute.clone(),
+                [
+                    WriteDescriptorSet::buffer(0, device_local_render.clone()),
+                    WriteDescriptorSet::buffer(1, result_buffer.clone()),
+                ]
+            ).unwrap()
         };
 
         // we are allowed to not do a render pass if we use dynamic
@@ -341,10 +385,9 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             .unwrap_or_else(|e| panic!("{}", e))
             .end_render_pass()
             .unwrap()
-            .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
-                image.clone(),
-                transfer_buffer.clone(),
-            ))
+            .bind_descriptor_sets(PipelineBindPoint::Compute, pipeline_compute.layout().clone(), 0, set_compute)
+            .bind_pipeline_compute(pipeline_compute.clone())
+            .dispatch([(dim.0 as u64 * dim.1 as u64 / (128 * 4)) as u32, 1, 1])
             .unwrap();
 
         let command_buffer = builder.build().unwrap();
@@ -357,31 +400,17 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
 
         future.wait(None).unwrap();
 
-        let buffer_content = transfer_buffer.read().unwrap();
-        let file = format!(
-            "{}/{}.{}",
-            dir,
-            img_num,
-            screenshot_format.extensions_str()[0]
-        );
-        // todo: change to get pixel root mse
-        /*
-        Rgba32FImage::from_raw(dim.0, dim.1, buffer_content.to_vec())
-            .unwrap()
-            .save_with_format(&file, screenshot_format)
-            .unwrap();
-        ret.push(file)
-        */
+        let buffer_content = result_buffer.read().unwrap();
 
-        let valid = buffer_content
-            .chunks(4)
-            .map(|s| s[0])
-            .filter(|p| p > &&0.0)
-            .collect::<Vec<_>>();
-        let prmse =
-            (valid.iter().map(|x| *x as f64).sum::<f64>() / valid.len() as f64).sqrt() as f32;
+        // let valid = buffer_content
+        //     .chunks(4)
+        //     .map(|s| s[0])
+        //     .filter(|p| p > &&0.0)
+        //     .collect::<Vec<_>>();
+        // let prmse =
+        //     (valid.iter().map(|x| *x as f64).sum::<f64>() / valid.len() as f64).sqrt() as f32;
 
-        ret.push(prmse);
+        ret.push(buffer_content.result);
 
         log!("capture {} complete", img_num);
     }
@@ -857,5 +886,13 @@ mod cmp_vs {
     vulkano_shaders::shader! {
         ty: "vertex",
         path: "shaders/compare_vs.glsl"
+    }
+}
+
+mod cmp_cs {
+    vulkano_shaders::shader! {
+        vulkan_version: "1.1",
+        ty: "compute",
+        path: "shaders/compare_cs.glsl"
     }
 }
