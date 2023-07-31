@@ -14,7 +14,7 @@ pub struct Camera {
     pub pos: Vec3,
     pub target: Vec3,
     pub aspect: f32,
-    autorotate: Option<CamAutorotate>
+    autorotate: Option<CamAutorotate>,
 }
 
 impl Camera {
@@ -23,21 +23,23 @@ impl Camera {
             pos: [0.0, 0.0, 3.0].into(),
             target: [0.0, 0.0, 0.0].into(),
             aspect,
-            autorotate: None
+            autorotate: None,
         }
     }
 
     pub fn with_autorotate(mut self, rate: Vec2) -> Self {
-        self.autorotate = Some(
-            CamAutorotate { last_update: std::time::Instant::now(), rate }
-        );
+        self.autorotate = Some(CamAutorotate {
+            last_update: std::time::Instant::now(),
+            rate,
+        });
         self
     }
 
     pub fn set_autorotate(&mut self, rate: Vec2) -> &mut Self {
-        self.autorotate = Some(
-            CamAutorotate { last_update: std::time::Instant::now(), rate }
-        );
+        self.autorotate = Some(CamAutorotate {
+            last_update: std::time::Instant::now(),
+            rate,
+        });
         self
     }
 

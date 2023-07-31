@@ -1,5 +1,7 @@
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use image::Rgba32FImage;
 
@@ -16,14 +18,17 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{DeviceExtensions, DeviceOwned};
 use vulkano::format::Format;
 use vulkano::image::view::{ImageView, ImageViewCreateInfo};
-use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, StorageImage, SwapchainImage, ImageLayout, ImageCreateFlags};
+use vulkano::image::{
+    AttachmentImage, ImageAccess, ImageCreateFlags, ImageLayout, ImageUsage, StorageImage,
+    SwapchainImage,
+};
 
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
 use vulkano::pipeline::graphics::vertex_input::Vertex;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
-use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint, ComputePipeline};
+use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 
 use vulkano::shader::ShaderModule;
@@ -88,7 +93,10 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             array_layers: 1,
         },
         image_format,
-        ImageUsage::TRANSFER_SRC | ImageUsage::COLOR_ATTACHMENT | ImageUsage::STORAGE | ImageUsage::SAMPLED,
+        ImageUsage::TRANSFER_SRC
+            | ImageUsage::COLOR_ATTACHMENT
+            | ImageUsage::STORAGE
+            | ImageUsage::SAMPLED,
         ImageCreateFlags::default(),
         Some(queue.queue_family_index()),
     )
@@ -112,24 +120,27 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             ..Default::default()
         },
         (dim.0 * dim.1) as u64
-            * (image_format.block_size().unwrap() / std::mem::size_of::<f32>() as u64)
+            * (image_format.block_size().unwrap() / std::mem::size_of::<f32>() as u64),
     )
     .unwrap();
 
-    assert_eq!((dim.0 * dim.1) as u64 % (128 * COMPUTE_PIXELS_PER_INVOCATION), 0);
+    assert_eq!(
+        (dim.0 * dim.1) as u64 % (128 * COMPUTE_PIXELS_PER_INVOCATION),
+        0
+    );
     let result_buffer = Buffer::new_slice::<f32>(
         &memory_allocator,
         BufferCreateInfo {
             usage: BufferUsage::STORAGE_BUFFER,
             ..Default::default()
-        }, 
-        AllocationCreateInfo { 
+        },
+        AllocationCreateInfo {
             usage: MemoryUsage::Download,
             ..Default::default()
         },
-        (dim.0 * dim.1) as u64 / COMPUTE_PIXELS_PER_INVOCATION
-    ).unwrap();
-
+        (dim.0 * dim.1) as u64 / COMPUTE_PIXELS_PER_INVOCATION,
+    )
+    .unwrap();
 
     let fs_cmp = cmp_fs::load(device.clone()).unwrap();
     let fs_cmp_entry = fs_cmp.entry_point("main").unwrap();
@@ -246,14 +257,8 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         .build(memory_allocator.device().clone())
         .unwrap();
 
-    let pipeline_compute = ComputePipeline::new(
-        device.clone(),
-        cs_cmp_entry, 
-        &(),
-        None,
-        |_| {}
-    ).unwrap();
-
+    let pipeline_compute =
+        ComputePipeline::new(device.clone(), cs_cmp_entry, &(), None, |_| {}).unwrap();
 
     let view = ImageView::new_default(image.clone()).unwrap();
 
@@ -314,7 +319,11 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
 
     // initialization done!
 
-    let sampler = vulkano::sampler::Sampler::new(device.clone(), vulkano::sampler::SamplerCreateInfo::simple_repeat_linear_no_mipmap() ).unwrap();
+    let sampler = vulkano::sampler::Sampler::new(
+        device.clone(),
+        vulkano::sampler::SamplerCreateInfo::simple_repeat_linear_no_mipmap(),
+    )
+    .unwrap();
     let mut ret = vec![];
     for (img_num, pos_pair) in pos.iter().enumerate() {
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -345,8 +354,9 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
                 [
                     WriteDescriptorSet::image_view_sampler(0, view.clone(), sampler.clone()),
                     WriteDescriptorSet::buffer(1, result_buffer.clone()),
-                ]
-            ).unwrap()
+                ],
+            )
+            .unwrap()
         };
 
         // we are allowed to not do a render pass if we use dynamic
@@ -392,12 +402,23 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             .unwrap_or_else(|e| panic!("{}", e))
             .end_render_pass()
             .unwrap()
-            .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(image.clone(),
-                device_local_render.clone()))
+            .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
+                image.clone(),
+                device_local_render.clone(),
+            ))
             .unwrap()
-            .bind_descriptor_sets(PipelineBindPoint::Compute, pipeline_compute.layout().clone(), 0, set_compute)
+            .bind_descriptor_sets(
+                PipelineBindPoint::Compute,
+                pipeline_compute.layout().clone(),
+                0,
+                set_compute,
+            )
             .bind_pipeline_compute(pipeline_compute.clone())
-            .dispatch([(dim.0 as u64 * dim.1 as u64 / (128 * COMPUTE_PIXELS_PER_INVOCATION)) as u32, 1, 1])
+            .dispatch([
+                (dim.0 as u64 * dim.1 as u64 / (128 * COMPUTE_PIXELS_PER_INVOCATION)) as u32,
+                1,
+                1,
+            ])
             .unwrap();
 
         let command_buffer = builder.build().unwrap();
@@ -418,11 +439,11 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             .iter()
             .filter(|p| p > &&0.0)
             .collect::<Vec<_>>();
-        let prmse =
-            (valid.iter().map(|x| **x as f64).sum::<f64>() / (valid.len() as f64 * COMPUTE_PIXELS_PER_INVOCATION as f64)).sqrt() as f32;
+        let prmse = (valid.iter().map(|x| **x as f64).sum::<f64>()
+            / (valid.len() as f64 * COMPUTE_PIXELS_PER_INVOCATION as f64))
+            .sqrt() as f32;
 
         ret.push(prmse);
-
 
         log!("capture {} complete", img_num);
     }
@@ -607,22 +628,31 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
     // swapchain can be spuriously invalidated (window resized)
     let recreate_swapchain = Arc::new(AtomicBool::new(false));
 
-    let previous_frame_end = Arc::new(Mutex::new(Some(sync::now(device.clone()).boxed_send_sync())));
+    let previous_frame_end = Arc::new(Mutex::new(Some(
+        sync::now(device.clone()).boxed_send_sync(),
+    )));
+    let mut present_thread_handle: Option<JoinHandle<()>> = None;
 
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
-            } => *control_flow = ControlFlow::Exit,
-            Event::DeviceEvent {
+            }
+            | Event::DeviceEvent {
                 event:
                     DeviceEvent::Key(KeyboardInput {
                         virtual_keycode: Some(VirtualKeyCode::Q),
                         ..
                     }),
                 ..
-            } => *control_flow = ControlFlow::Exit,
+            } => {
+                present_thread_handle.take().map(|t| t.join().unwrap());
+                // this is necessary because the future needs to be dropped - otherwise will
+                // segfault
+                previous_frame_end.lock().unwrap().take();
+                *control_flow = ControlFlow::Exit
+            }
             Event::WindowEvent {
                 event: WindowEvent::Resized(_),
                 ..
@@ -641,8 +671,19 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                     return;
                 }
 
+                log_if_slow!(1000/60 =>
+                    present_thread_handle.take().map(|t| t.join().unwrap());
+                );
+                std::sync::atomic::fence(Ordering::SeqCst);
                 // will cause a memory leak if not called every once in a while
-                previous_frame_end.lock().unwrap().as_mut().unwrap().cleanup_finished();
+
+                if let Some(future) = previous_frame_end.lock().unwrap().as_mut() {
+                    future.cleanup_finished();
+                } else {
+                    log!("no prev frame in main loop - exiting");
+                    log!("^^^^^^^^^^^^^ This heuristic is weird");
+                    return;
+                }
 
                 if recreate_swapchain.load(Ordering::Acquire) {
                     log!("regenerating swapchain");
@@ -675,16 +716,15 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
 
                 // need to acquire image before drawing, blocks if it's not ready yet (too many
                 // commands), so it has optional timeout
-                let (image_index, suboptimal, acquire_future) =
-                log_if_slow!(1000 / 300 => 
-                    match acquire_next_image(swapchain.clone(), None) {
-                        Ok(r) => r,
-                        Err(AcquireError::OutOfDate) => {
-                            recreate_swapchain.store(true, Ordering::Release);
-                            return;
-                        }
-                        Err(e) => panic!("failed to acquire next image: {e}"),
-                    });
+                let (image_index, suboptimal, acquire_future) = log_if_slow!(1000 / 300 =>
+                match acquire_next_image(swapchain.clone(), None) {
+                    Ok(r) => r,
+                    Err(AcquireError::OutOfDate) => {
+                        recreate_swapchain.store(true, Ordering::Release);
+                        return;
+                    }
+                    Err(e) => panic!("failed to acquire next image: {e}"),
+                });
 
                 // sometimes this just happens, usually it's the user's fault. The image will still
                 // display, just poorly. It may become an out of date error if we don't regen.
@@ -700,7 +740,6 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                 .unwrap();
 
                 // we are allowed to not do a render pass if we use dynamic
-
 
                 let mut temp_cam = cam.clone();
                 temp_cam.orbit_target(&orbit_amt);
@@ -746,14 +785,13 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                 let command_buffer = builder.build().unwrap();
 
                 {
-
                     let image_index = image_index.clone();
                     let previous_frame_end = previous_frame_end.clone();
                     let queue = queue.clone();
                     let swapchain = swapchain.clone();
                     let recreate_swapchain = recreate_swapchain.clone();
                     let device = device.clone();
-                    std::thread::spawn(move || {
+                    present_thread_handle = Some(std::thread::spawn(move || {
                         let mut previous_frame_end = previous_frame_end.lock().unwrap();
                         let future = previous_frame_end
                             .take()
@@ -763,23 +801,29 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                             .unwrap()
                             .then_swapchain_present(
                                 queue.clone(),
-                                SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index),
+                                SwapchainPresentInfo::swapchain_image_index(
+                                    swapchain.clone(),
+                                    image_index,
+                                ),
                             );
-                        let future = log_if_slow!{1000/60 => { future.then_signal_fence_and_flush()}};
+                        // let future = log_if_slow!{1000/60 => { future.then_signal_fence_and_flush()}};
+                        let future = future.then_signal_fence_and_flush();
 
                         match future {
                             Ok(f) => {
+                                // f.wait(None).unwrap_or(());
                                 *previous_frame_end = Some(f.boxed_send_sync());
                             }
                             Err(FlushError::OutOfDate) => {
                                 recreate_swapchain.store(true, Ordering::Release);
-                                *previous_frame_end = Some(sync::now(device.clone()).boxed_send_sync());
+                                *previous_frame_end =
+                                    Some(sync::now(device.clone()).boxed_send_sync());
                             }
                             Err(e) => {
                                 panic!("Failed to flush future {e}");
                             }
                         }
-                    });
+                    }));
                 }
             }
             _ => (),
