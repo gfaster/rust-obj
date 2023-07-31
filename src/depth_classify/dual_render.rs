@@ -14,7 +14,7 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{DeviceExtensions, DeviceOwned};
 use vulkano::format::Format;
 use vulkano::image::view::{ImageView, ImageViewCreateInfo};
-use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, StorageImage, SwapchainImage};
+use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, StorageImage, SwapchainImage, ImageLayout, ImageCreateFlags};
 
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
@@ -46,6 +46,7 @@ use crate::vkrender::render_systems::object_system::{
 };
 use crate::vkrender::{screenshot_dir, VkVertex};
 
+const COMPUTE_PIXELS_PER_INVOCATION: u64 = 1024;
 pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32> {
     // I'm using the Vulkano examples to learn here
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/triangle.rs
@@ -75,9 +76,9 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-    let image_format = Format::R32G32B32A32_SFLOAT;
+    let image_format = Format::R32_SFLOAT;
 
-    let image = StorageImage::new(
+    let image = StorageImage::with_usage(
         &memory_allocator,
         vulkano::image::ImageDimensions::Dim2d {
             width: dim.0,
@@ -85,21 +86,23 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             array_layers: 1,
         },
         image_format,
+        ImageUsage::TRANSFER_SRC | ImageUsage::COLOR_ATTACHMENT | ImageUsage::STORAGE | ImageUsage::SAMPLED,
+        ImageCreateFlags::default(),
         Some(queue.queue_family_index()),
     )
     .unwrap();
 
-    {
-        // hacky way to make sure there is no padding
-        fn shader_compute_horrible_hack(data: &cmp_cs::ShaderComputeData) -> f32 {
-            data.data[0]
-        }
-    }
+    // {
+    //     // hacky way to make sure there is no padding
+    //     fn shader_compute_horrible_hack(data: &cmp_cs::ShaderComputeData) -> f32 {
+    //         data.data[0]
+    //     }
+    // }
 
     let device_local_render = Buffer::new_slice::<f32>(
         &memory_allocator,
         BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_DST,
+            usage: BufferUsage::TRANSFER_DST | BufferUsage::STORAGE_BUFFER,
             ..Default::default()
         },
         AllocationCreateInfo {
@@ -111,7 +114,8 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
     )
     .unwrap();
 
-    let result_buffer = Buffer::from_data::<cmp_cs::ShaderComputeResult>(
+    assert_eq!((dim.0 * dim.1) as u64 % (128 * COMPUTE_PIXELS_PER_INVOCATION), 0);
+    let result_buffer = Buffer::new_slice::<f32>(
         &memory_allocator,
         BufferCreateInfo {
             usage: BufferUsage::STORAGE_BUFFER,
@@ -121,7 +125,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             usage: MemoryUsage::Download,
             ..Default::default()
         },
-        cmp_cs::ShaderComputeResult{ result: 0.0 }
+        (dim.0 * dim.1) as u64 / COMPUTE_PIXELS_PER_INVOCATION
     ).unwrap();
 
 
@@ -201,7 +205,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         AttachmentImage::with_usage(
             &memory_allocator,
             [dim.0, dim.1],
-            image_format,
+            INTERMEDIATE_IMAGE_FORMAT,
             ImageUsage::TRANSIENT_ATTACHMENT | ImageUsage::INPUT_ATTACHMENT,
         )
         .unwrap(),
@@ -211,7 +215,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         AttachmentImage::with_usage(
             &memory_allocator,
             [dim.0, dim.1],
-            image_format,
+            INTERMEDIATE_IMAGE_FORMAT,
             ImageUsage::TRANSIENT_ATTACHMENT | ImageUsage::INPUT_ATTACHMENT,
         )
         .unwrap(),
@@ -256,7 +260,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             render_pass.clone(),
             render_pass::FramebufferCreateInfo {
                 attachments: vec![
-                    view,
+                    view.clone(),
                     color_buffer_1.clone(),
                     color_buffer_2.clone(),
                     depth_buffer_1,
@@ -308,6 +312,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
 
     // initialization done!
 
+    let sampler = vulkano::sampler::Sampler::new(device.clone(), vulkano::sampler::SamplerCreateInfo::simple_repeat_linear_no_mipmap() ).unwrap();
     let mut ret = vec![];
     for (img_num, pos_pair) in pos.iter().enumerate() {
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -336,7 +341,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
                 &descriptor_set_allocator,
                 layout_compute.clone(),
                 [
-                    WriteDescriptorSet::buffer(0, device_local_render.clone()),
+                    WriteDescriptorSet::image_view_sampler(0, view.clone(), sampler.clone()),
                     WriteDescriptorSet::buffer(1, result_buffer.clone()),
                 ]
             ).unwrap()
@@ -385,9 +390,12 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             .unwrap_or_else(|e| panic!("{}", e))
             .end_render_pass()
             .unwrap()
+            .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(image.clone(),
+                device_local_render.clone()))
+            .unwrap()
             .bind_descriptor_sets(PipelineBindPoint::Compute, pipeline_compute.layout().clone(), 0, set_compute)
             .bind_pipeline_compute(pipeline_compute.clone())
-            .dispatch([(dim.0 as u64 * dim.1 as u64 / (128 * 4)) as u32, 1, 1])
+            .dispatch([(dim.0 as u64 * dim.1 as u64 / (128 * COMPUTE_PIXELS_PER_INVOCATION)) as u32, 1, 1])
             .unwrap();
 
         let command_buffer = builder.build().unwrap();
@@ -402,15 +410,17 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
 
         let buffer_content = result_buffer.read().unwrap();
 
-        // let valid = buffer_content
-        //     .chunks(4)
-        //     .map(|s| s[0])
-        //     .filter(|p| p > &&0.0)
-        //     .collect::<Vec<_>>();
-        // let prmse =
-        //     (valid.iter().map(|x| *x as f64).sum::<f64>() / valid.len() as f64).sqrt() as f32;
+        // device_local_render.read().unwrap().iter().for_each(|f| eprint!("{f} "));
 
-        ret.push(buffer_content.result);
+        let valid = buffer_content
+            .iter()
+            .filter(|p| p > &&0.0)
+            .collect::<Vec<_>>();
+        let prmse =
+            (valid.iter().map(|x| **x as f64).sum::<f64>() / (valid.len() as f64 * COMPUTE_PIXELS_PER_INVOCATION as f64)).sqrt() as f32;
+
+        ret.push(prmse);
+
 
         log!("capture {} complete", img_num);
     }
@@ -893,6 +903,7 @@ mod cmp_cs {
     vulkano_shaders::shader! {
         vulkan_version: "1.1",
         ty: "compute",
+        define: [("PIXEL_NUM", "1024")],
         path: "shaders/compare_cs.glsl"
     }
 }
