@@ -16,6 +16,33 @@ macro_rules! log {
     };
 }
 
+#[allow(unused_macros)]
+macro_rules! log_if_slow {
+    ($cutoff_millis:expr => $expr:expr) => {
+        {
+            let cutoff: u128 = $cutoff_millis;
+            let start = ::std::time::Instant::now();
+            let res = $expr;
+            let elapsed = start.elapsed().as_millis();
+            if elapsed > cutoff {
+                log!("Expr at line {} was slow: {elapsed} ms", line!());
+            }
+            res
+        }
+    };
+    ($cutoff_millis:expr => $($tok:tt)*) => {
+        let cutoff: u128 = $cutoff_millis;
+        let start = ::std::time::Instant::now();
+        {
+            $($tok)*
+        }
+        let elapsed = start.elapsed().as_millis();
+        if elapsed > cutoff {
+            log!("Block at line {} was slow: {elapsed} ms", line!());
+        }
+    };
+}
+
 /// implement error for a type using its [`Debug`][debug] implementation. This macro also
 /// implements [`Display`][display] for the type.
 ///

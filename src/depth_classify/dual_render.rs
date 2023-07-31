@@ -1,7 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use image::Rgba32FImage;
 
+use nalgebra_glm::log;
 use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
@@ -486,7 +488,7 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
         frame_mesh.to_buffers(&memory_allocator)
     };
 
-    let mut cam = Camera::new(1.0);
+    let mut cam = Camera::new(1.0).with_autorotate(glm::vec2(1.0, 0.0));
 
     let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
@@ -603,9 +605,9 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
     // initialization done!
 
     // swapchain can be spuriously invalidated (window resized)
-    let mut recreate_swapchain = false;
+    let recreate_swapchain = Arc::new(AtomicBool::new(false));
 
-    let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
+    let previous_frame_end = Arc::new(Mutex::new(Some(sync::now(device.clone()).boxed_send_sync())));
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -624,14 +626,14 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
             Event::WindowEvent {
                 event: WindowEvent::Resized(_),
                 ..
-            } => recreate_swapchain = true,
+            } => recreate_swapchain.store(true, Ordering::Release),
             Event::DeviceEvent {
                 event: DeviceEvent::MouseMotion { delta },
                 ..
             } => {
                 mouse_move(&mut cam, &delta);
             }
-            Event::RedrawEventsCleared => {
+            Event::MainEventsCleared => {
                 // do not draw if size is zero (eg minimized)
                 let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
                 let dimensions = window.inner_size();
@@ -640,9 +642,10 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                 }
 
                 // will cause a memory leak if not called every once in a while
-                previous_frame_end.as_mut().unwrap().cleanup_finished();
+                previous_frame_end.lock().unwrap().as_mut().unwrap().cleanup_finished();
 
-                if recreate_swapchain {
+                if recreate_swapchain.load(Ordering::Acquire) {
+                    log!("regenerating swapchain");
                     let (new_swapchain, new_images) =
                         match swapchain.recreate(SwapchainCreateInfo {
                             image_extent: dimensions.into(),
@@ -666,25 +669,27 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                         &mut cam,
                         (fs_cmp.clone(), vs_cmp.clone()),
                     );
-                    recreate_swapchain = false;
+                    recreate_swapchain.store(false, Ordering::Release);
                 }
+                mouse_move(&mut cam, &(0.0, 0.0));
 
                 // need to acquire image before drawing, blocks if it's not ready yet (too many
                 // commands), so it has optional timeout
                 let (image_index, suboptimal, acquire_future) =
+                log_if_slow!(1000 / 300 => 
                     match acquire_next_image(swapchain.clone(), None) {
                         Ok(r) => r,
                         Err(AcquireError::OutOfDate) => {
-                            recreate_swapchain = true;
+                            recreate_swapchain.store(true, Ordering::Release);
                             return;
                         }
                         Err(e) => panic!("failed to acquire next image: {e}"),
-                    };
+                    });
 
                 // sometimes this just happens, usually it's the user's fault. The image will still
                 // display, just poorly. It may become an out of date error if we don't regen.
                 if suboptimal {
-                    recreate_swapchain = true;
+                    recreate_swapchain.store(true, Ordering::Release);
                 }
 
                 let mut builder = AutoCommandBufferBuilder::primary(
@@ -695,6 +700,7 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
                 .unwrap();
 
                 // we are allowed to not do a render pass if we use dynamic
+
 
                 let mut temp_cam = cam.clone();
                 temp_cam.orbit_target(&orbit_amt);
@@ -739,29 +745,41 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
 
                 let command_buffer = builder.build().unwrap();
 
-                let future = previous_frame_end
-                    .take()
-                    .unwrap()
-                    .join(acquire_future)
-                    .then_execute(queue.clone(), command_buffer)
-                    .unwrap()
-                    .then_swapchain_present(
-                        queue.clone(),
-                        SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index),
-                    )
-                    .then_signal_fence_and_flush();
+                {
 
-                match future {
-                    Ok(f) => {
-                        previous_frame_end = Some(f.boxed());
-                    }
-                    Err(FlushError::OutOfDate) => {
-                        recreate_swapchain = true;
-                        previous_frame_end = Some(sync::now(device.clone()).boxed());
-                    }
-                    Err(e) => {
-                        panic!("Failed to flush future {e}");
-                    }
+                    let image_index = image_index.clone();
+                    let previous_frame_end = previous_frame_end.clone();
+                    let queue = queue.clone();
+                    let swapchain = swapchain.clone();
+                    let recreate_swapchain = recreate_swapchain.clone();
+                    let device = device.clone();
+                    std::thread::spawn(move || {
+                        let mut previous_frame_end = previous_frame_end.lock().unwrap();
+                        let future = previous_frame_end
+                            .take()
+                            .unwrap()
+                            .join(acquire_future)
+                            .then_execute(queue.clone(), command_buffer)
+                            .unwrap()
+                            .then_swapchain_present(
+                                queue.clone(),
+                                SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index),
+                            );
+                        let future = log_if_slow!{1000/60 => { future.then_signal_fence_and_flush()}};
+
+                        match future {
+                            Ok(f) => {
+                                *previous_frame_end = Some(f.boxed_send_sync());
+                            }
+                            Err(FlushError::OutOfDate) => {
+                                recreate_swapchain.store(true, Ordering::Release);
+                                *previous_frame_end = Some(sync::now(device.clone()).boxed_send_sync());
+                            }
+                            Err(e) => {
+                                panic!("Failed to flush future {e}");
+                            }
+                        }
+                    });
                 }
             }
             _ => (),
