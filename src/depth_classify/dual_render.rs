@@ -811,7 +811,7 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
 
                         match future {
                             Ok(f) => {
-                                // f.wait(None).unwrap_or(());
+                                f.wait(None).unwrap_or(());
                                 *previous_frame_end = Some(f.boxed_send_sync());
                             }
                             Err(FlushError::OutOfDate) => {
