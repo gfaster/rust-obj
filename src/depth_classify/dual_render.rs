@@ -948,7 +948,7 @@ fn initialize_based_on_window(
 
 mod cmp_fs {
     vulkano_shaders::shader! {
-        define: [("OUT_FORMAT", "float")],
+        define: [("OUT_FORMAT", "vec4")],
         ty: "fragment",
         path: "shaders/compare_vk.glsl",
     }
