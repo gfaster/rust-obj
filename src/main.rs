@@ -35,10 +35,10 @@ fn main() {
 
     // renderer::display_model(obj);
     // screenshots(obj);
-    // screenshots_compare(obj);
+    screenshots_compare(obj);
 
-    let orbit_amt = glm::vec2(0.01, 0.0);
-    depth_classify::dual_render::display_duel_render(obj, orbit_amt);
+    // let orbit_amt = glm::vec2(0.01, 0.0);
+    // depth_classify::dual_render::display_duel_render(obj, orbit_amt);
 }
 
 fn screenshots(obj: mesh::MeshData) {
@@ -55,8 +55,8 @@ fn screenshots(obj: mesh::MeshData) {
 }
 
 fn screenshots_compare(obj: mesh::MeshData) {
-    let cnt = 360;
-    let diff = TAU / cnt as f32;
+    let cnt = 1;
+    let diff = TAU / 360 as f32;
     let v = Vec::from_iter((0..cnt).map(|i| {
         let theta = i as f32 * core::f32::consts::TAU / cnt as f32;
         [
@@ -65,9 +65,11 @@ fn screenshots_compare(obj: mesh::MeshData) {
         ]
     }));
     let prmses = depth_classify::dual_render::depth_compare(obj, (1024, 1024), &v);
+    /*
     print!("[");
     for prmse in prmses {
         print!("{} ", prmse);
     }
     println!("]");
+    */
 }

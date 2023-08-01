@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use image::Rgba32FImage;
+use image::{Rgba32FImage, GrayImage};
 
+use nalgebra::Complex;
 use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
@@ -46,6 +47,23 @@ use crate::vkrender::render_systems::object_system::{
 };
 use crate::vkrender::{screenshot_dir, VkVertex};
 
+use fft2d::slice::fft_2d;
+
+fn transpose<T: Copy + Default>(width: usize, height: usize, matrix: &[T]) -> Vec<T> {
+    let mut ind = 0;
+    let mut ind_tr;
+    let mut transposed = vec![T::default(); matrix.len()];
+    for row in 0..height {
+        ind_tr = row;
+        for _ in 0..width {
+            transposed[ind_tr] = matrix[ind];
+            ind += 1;
+            ind_tr += height;
+        }
+    }
+    transposed
+}
+
 pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32> {
     // I'm using the Vulkano examples to learn here
     // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/triangle.rs
@@ -72,7 +90,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-    let image_format = Format::R32G32B32A32_SFLOAT;
+    let image_format = Format::R32_SFLOAT;
 
     let image = StorageImage::new(
         &memory_allocator,
@@ -358,21 +376,23 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         future.wait(None).unwrap();
 
         let buffer_content = transfer_buffer.read().unwrap();
+
+        /* saving pixel difference as image
         let file = format!(
             "{}/{}.{}",
             dir,
             img_num,
             screenshot_format.extensions_str()[0]
         );
-        // todo: change to get pixel root mse
-        /*
+
         Rgba32FImage::from_raw(dim.0, dim.1, buffer_content.to_vec())
             .unwrap()
             .save_with_format(&file, screenshot_format)
             .unwrap();
         ret.push(file)
         */
-
+    
+        /* computing prmse
         let valid = buffer_content
             .chunks(4)
             .map(|s| s[0])
@@ -384,8 +404,44 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         ret.push(prmse);
 
         log!("capture {} complete", img_num);
+        */
+
+        // doing fft to pixel difference
+        let mut img_buffer = buffer_content.iter().map(|p| Complex::new(*p as f64, 0.0)).collect::<Vec<_>>();
+        fft_2d(dim.0 as usize, dim.1 as usize, &mut img_buffer);
+        img_buffer = transpose(dim.0 as usize, dim.1 as usize, &mut img_buffer);
+
+        let re = img_buffer.iter().flat_map(|c| 
+            [((c / (dim.0 as f64 * dim.1 as f64)).re * 255.0) as f32, 
+            ((c / (dim.0 as f64 * dim.1 as f64)).re * 255.0) as f32, 
+            ((c / (dim.0 as f64 * dim.1 as f64)).re * 255.0) as f32, 
+            1.0])
+            .collect::<Vec<_>>();
+        let im = img_buffer.iter().flat_map(|c| 
+            [((c / (dim.0 as f64 * dim.1 as f64)).im * 255.0) as f32, 
+            ((c / (dim.0 as f64 * dim.1 as f64)).im * 255.0) as f32, 
+            ((c / (dim.0 as f64 * dim.1 as f64)).im * 255.0) as f32, 
+            1.0])
+            .collect::<Vec<_>>();
+
+        let re_file = format!(
+            "{}/{}.{}",
+            dir,
+            img_num.to_string() + "_re",
+            screenshot_format.extensions_str()[0]
+        );
+        let im_file = format!(
+            "{}/{}.{}",
+            dir,
+            img_num.to_string() + "_im",
+            screenshot_format.extensions_str()[0]
+        );
+
+        Rgba32FImage::from_raw(dim.0, dim.1, re).unwrap().save_with_format(&re_file, screenshot_format).unwrap();
+        Rgba32FImage::from_raw(dim.0, dim.1, im).unwrap().save_with_format(&im_file, screenshot_format).unwrap();
     }
 
+    println!("{}", dir);
     ret
 }
 
