@@ -1,11 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
 
-use image::Rgba32FImage;
 
-use nalgebra_glm::log;
+
+
+
 use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
@@ -17,9 +17,9 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 
 use vulkano::device::{DeviceExtensions, DeviceOwned};
 use vulkano::format::Format;
-use vulkano::image::view::{ImageView, ImageViewCreateInfo};
+use vulkano::image::view::{ImageView};
 use vulkano::image::{
-    AttachmentImage, ImageAccess, ImageCreateFlags, ImageLayout, ImageUsage, StorageImage,
+    AttachmentImage, ImageAccess, ImageCreateFlags, ImageUsage, StorageImage,
     SwapchainImage,
 };
 
@@ -51,7 +51,7 @@ use crate::vkrender::init::initialize_device_window;
 use crate::vkrender::render_systems::object_system::{
     ObjectSystem, ObjectSystemConfig, ObjectSystemRenderMode,
 };
-use crate::vkrender::{screenshot_dir, VkVertex};
+use crate::vkrender::{VkVertex};
 
 const COMPUTE_PIXELS_PER_INVOCATION: u64 = 1024;
 pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32> {
@@ -509,7 +509,7 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
         frame_mesh.to_buffers(&memory_allocator)
     };
 
-    let mut cam = Camera::new(1.0).with_autorotate(glm::vec2(1.0, 0.0));
+    let mut cam = Camera::new(1.0).with_autorotate(glm::vec2(0.25, 0.0));
 
     let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
