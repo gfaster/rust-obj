@@ -25,8 +25,8 @@ void main()
     float factor = 1.0/2.0;
     float corrected = pow(diff, factor);
     if (diff > 1.0) {
-        // FragColor = vec4(vec3(0.0), 1.0);
-        FragColor = OUT_FORMAT(corrected);
+        FragColor = vec4(vec3(0.0), 1.0);
+        // FragColor = OUT_FORMAT(corrected);
     } else {
         FragColor = OUT_FORMAT(corrected);
     }

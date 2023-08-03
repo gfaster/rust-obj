@@ -509,7 +509,7 @@ pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
         frame_mesh.to_buffers(&memory_allocator)
     };
 
-    let mut cam = Camera::new(1.0).with_autorotate(glm::vec2(1.0, 0.0));
+    let mut cam = Camera::new(1.0).with_autorotate(glm::vec2(0.25, 0.0));
 
     let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
