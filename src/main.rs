@@ -56,20 +56,20 @@ fn screenshots(obj: mesh::MeshData) {
 
 fn screenshots_compare(obj: mesh::MeshData) {
     let cnt = 1;
-    let diff = TAU / 360 as f32;
+    let diff = TAU / 36 as f32;
     let v = Vec::from_iter((0..cnt).map(|i| {
-        let theta = i as f32 * core::f32::consts::TAU / cnt as f32;
+        let theta = i as f32 * core::f32::consts::TAU / 36 as f32;
         [
             glm::vec3(theta.cos() * 3.0, 0.0, theta.sin() * 3.0),
             glm::vec3((theta + diff).cos() * 3.0, 0.0, (theta + diff).sin() * 3.0),
         ]
     }));
-    let prmses = depth_classify::dual_render::depth_compare(obj, (1024, 1024), &v);
-    /*
+    let avgs = depth_classify::dual_render::depth_compare(obj, (1024, 1024), &v);
+   
+    
     print!("[");
-    for prmse in prmses {
-        print!("{} ", prmse);
+    for avg in avgs {
+        print!("{} ", avg);
     }
     println!("]");
-    */
 }
