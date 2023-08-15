@@ -115,6 +115,7 @@ impl Material {
         path: impl AsRef<Path>,
         registry: &mut HashMap<String, Material>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        log!("loading mtllib: {:?}", path.as_ref().file_name().unwrap());
         let reader = BufReader::new(std::fs::OpenOptions::new().read(true).open(&path)?);
 
         let mut lines = reader.lines().collect::<std::io::Result<Vec<_>>>()?;
@@ -137,6 +138,7 @@ impl Material {
             curr_mat.to_string(),
             Material::new_with_name(curr_mat.to_string()),
         );
+        dbg!(&curr_mat);
 
         for line in &lines[1..] {
             let tokens = &line.split_whitespace().collect::<Vec<_>>()[..];
@@ -146,6 +148,7 @@ impl Material {
                 ["newmtl", name] => {
                     registry.insert(name.to_string(), Material::new_with_name(name.to_string()));
                     curr_mat = name;
+                    dbg!(&curr_mat);
                 }
                 ["Ka", r, g, b] => match registry.get_mut(curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
@@ -170,26 +173,35 @@ impl Material {
                             Some(read_map(path.as_ref().with_file_name(map_file))?.into())
                     }
                 },
-                ["map_Kd", map_file] => match registry.get_mut(curr_mat) {
+                ["map_Kd", map_file] | ["map_d", map_file] => match registry.get_mut(curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(mat) => {
                         mat.diffuse_map =
                             Some(read_map(path.as_ref().with_file_name(map_file))?.into())
                     }
                 },
-                ["bump", map_file] | ["map_Bump", map_file] => match registry.get_mut(curr_mat) {
+                ["bump", map_file] | ["map_Bump", map_file] | ["map_bump", map_file] => match registry.get_mut(curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(mat) => {
                         mat.normal_map =
                             Some(read_map(path.as_ref().with_file_name(map_file))?.into())
                     }
                 },
+                ["Pm", _] => (),
+                ["Ps", _] => (),
+                ["Pc", _] => (),
+                ["Pcr", ..] => (),
+                ["aniso", ..] => (),
+                ["anisor", ..] => (),
                 ["map_Ks", _map_file] => (),
                 ["illum", _illium] => (),
                 ["Ke", _r, _g, _b] => (),
                 ["Ni", _i] => (),
                 ["d", _d] => (),
-                _ => return Err(MtlError::InvalidDirective(line.to_string()).into()),
+                _ => {
+                    log!("unknown directive: {:?}", line);
+                }
+                // _ => return Err(MtlError::InvalidDirective(line.to_string()).into()),
             }
         }
         Ok(())

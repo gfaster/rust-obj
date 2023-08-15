@@ -214,6 +214,10 @@ impl MeshData {
         self.vt.len() - 1
     }
 
+    pub fn tri_cnt(&self) -> usize {
+        self.f.len() / 3
+    }
+
     /// gets references to the actual Vec3 comprising verticies
     /// returns a MeshError if any index is out of bounds
     fn deref_vertex(&self, vtx: &VertexIndexed) -> Result<VertexDeindex, MeshError> {
@@ -304,7 +308,7 @@ impl MeshData {
     /// calculates the normal for the triangle at tri_idx
     /// assumes a clockwise winding order
     fn calculate_tri_normal(&self, tri_idx: usize) -> Result<Vec3, MeshError> {
-        log!("inferring normal");
+        // log!("inferring normal");
         let vtxs = self.verticies_from_tri_idx(tri_idx)?;
         let edge1 = vtxs[0].pos - vtxs[1].pos;
         let edge2 = vtxs[0].pos - vtxs[2].pos;

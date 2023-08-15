@@ -1,6 +1,5 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
-
-use image::Rgba32FImage;
 
 use nalgebra::Complex;
 use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
@@ -290,8 +289,13 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         object_system_right.register_object_instances(instances);
     }
 
+    let max_threads = ((1_usize << 33) / (dim.0 as usize* dim.1 as usize * (std::mem::size_of::<f64>() + 4 * std::mem::size_of::<f32>()))).clamp(1, 16);
+    log!("using up to {max_threads} threads");
+    let mut thread_handles = VecDeque::new();
+
     // initialization done!
 
+    #[allow(unused)]
     let screenshot_format = image::ImageFormat::OpenExr;
     let dir = screenshot_dir().unwrap();
     let mut ret = vec![];
@@ -406,84 +410,106 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         log!("capture {} complete", img_num);
         */
 
-        // doing fft to pixel difference
-        let mut img_buffer = buffer_content.iter().map(|p| Complex::new(*p as f64, 0.0)).collect::<Vec<_>>();
-        fft_2d(dim.0 as usize, dim.1 as usize, &mut img_buffer);
-        img_buffer = transpose(dim.0 as usize, dim.1 as usize, &mut img_buffer);
 
-        
-        //let ori = buffer_content.iter().map(|p| p.powi(2)).sum::<f32>();
-        //let sum = img_buffer.iter().map(|c| (c.norm() as f32).powi(2)).sum::<f32>() / (dim.0 as f32 * dim.1 as f32);
-        //println!{"Parseval's theorem: sum: {}, ori: {}", sum, ori}
-        
+        let mut img_buffer = Vec::with_capacity(buffer_content.len());
+        img_buffer.extend_from_slice(&buffer_content);
+        let dir = dir.clone();
 
-        // let normalized = img_buffer.iter().map(|c| (c / (dim.0 as f64 * dim.1 as f64).sqrt())).collect::<Vec<_>>();
+        let handle = std::thread::spawn(move || {
 
-        // Check Parseval's theorem
-        let ori_sum = buffer_content.iter().map(|p| p.powi(2)).sum::<f32>();
-        let sum = img_buffer.iter().map(|c| (c.norm() as f32).powi(2)).sum::<f32>() / (dim.0 as f32 * dim.1 as f32);
-        println!{"[parseval's theorem] before: {}, after: {}", ori_sum, sum}
+            let mut img_buffer = img_buffer.into_iter().map(|p| Complex::new(p as f64, 0.0)).collect::<Vec<_>>();
 
-        let avg = img_buffer.iter().map(|c| c.norm() as f32).sum::<f32>() / (dim.0 as f32 * dim.1 as f32);
-        // println!{"avg fft value: {}", avg}
+            // doing fft to pixel difference
+            fft_2d(dim.0 as usize, dim.1 as usize, &mut img_buffer);
+            img_buffer = transpose(dim.0 as usize, dim.1 as usize, &mut img_buffer);
 
-        /*
-        let re = img_buffer.iter().flat_map(|c| 
+
+            //let ori = buffer_content.iter().map(|p| p.powi(2)).sum::<f32>();
+            //let sum = img_buffer.iter().map(|c| (c.norm() as f32).powi(2)).sum::<f32>() / (dim.0 as f32 * dim.1 as f32);
+            //println!{"Parseval's theorem: sum: {}, ori: {}", sum, ori}
+
+
+            // let normalized = img_buffer.iter().map(|c| (c / (dim.0 as f64 * dim.1 as f64).sqrt())).collect::<Vec<_>>();
+
+            // Check Parseval's theorem
+            /* let ori_sum = buffer_content.iter().map(|p| p.powi(2)).sum::<f32>();
+            let sum = img_buffer.iter().map(|c| (c.norm() as f32).powi(2)).sum::<f32>() / (dim.0 as f32 * dim.1 as f32);
+            println!{"[parseval's theorem] before: {}, after: {}", ori_sum, sum} */
+
+            let avg = img_buffer.iter().map(|c| c.norm() as f32).sum::<f32>() / (dim.0 as f32 * dim.1 as f32);
+            // println!{"avg fft value: {}", avg}
+
+            /*
+            let re = img_buffer.iter().flat_map(|c| 
             [((c / (dim.0 as f64 * dim.1 as f64)).re * 255.0) as f32, 
             ((c / (dim.0 as f64 * dim.1 as f64)).re * 255.0) as f32, 
             ((c / (dim.0 as f64 * dim.1 as f64)).re * 255.0) as f32, 
             1.0])/////
             .collect::<Vec<_>>();
-        let im = img_buffer.iter().flat_map(|c| 
+            let im = img_buffer.iter().flat_map(|c| 
             [((c / (dim.0 as f64 * dim.1 as f64)).im * 255.0) as f32, 
             ((c / (dim.0 as f64 * dim.1 as f64)).im * 255.0) as f32, 
             ((c / (dim.0 as f64 * dim.1 as f64)).im * 255.0) as f32, 
             1.0])
             .collect::<Vec<_>>();
 
-        let re_file = format!(
+            let re_file = format!(
             "{}/{}.{}",
             dir,
             img_num.to_string() + "_re",
             screenshot_format.extensions_str()[0]
-        );
-        let im_file = format!(
+            );
+            let im_file = format!(
             "{}/{}.{}",
             dir,
             img_num.to_string() + "_im",
             screenshot_format.extensions_str()[0]
-        );
+            );
 
-        Rgba32FImage::from_raw(dim.0, dim.1, re).unwrap().save_with_format(&re_file, screenshot_format).unwrap();
-        Rgba32FImage::from_raw(dim.0, dim.1, im).unwrap().save_with_format(&im_file, screenshot_format).unwrap();
-        */
+            Rgba32FImage::from_raw(dim.0, dim.1, re).unwrap().save_with_format(&re_file, screenshot_format).unwrap();
+            Rgba32FImage::from_raw(dim.0, dim.1, im).unwrap().save_with_format(&im_file, screenshot_format).unwrap();
+            */
 
-        let max = img_buffer.iter().map(|c| c.norm() as f32).fold(f32::NEG_INFINITY, |acc, x| acc.max(x));
-        let min = img_buffer.iter().map(|c| c.norm() as f32).fold(f32::INFINITY, |acc, x| acc.min(x));
-        let normalized = img_buffer.iter().map(|c| (c.norm() as f32 - min) / (max - min) as f32).collect::<Vec<_>>();
-        let norm = normalized
-            .iter()
-            .flat_map(|n| [n * 255.0, n * 255.0, n * 255.0, 1.0])
+            let max = img_buffer.iter().map(|c| c.norm() as f32).fold(f32::NEG_INFINITY, |acc, x| acc.max(x));
+            // let min = img_buffer.iter().map(|c| c.norm() as f32).fold(f32::INFINITY, |acc, x| acc.min(x));
+            let factor = 1.0 / (1.0 + max).ln();
+            let norm = img_buffer.into_iter().map(|c| factor * (c.norm() as f32 + 1.0).ln())
+            .flat_map(|n| [n, n, n, 1.0])
             .collect::<Vec<_>>();
-        let norm_file = format!(
+            let true_res = dim.0.min(1<<10);
+
+            let norm_file = format!(
             "{}/{}.{}",
             dir,
             img_num.to_string() + "_norm",
             screenshot_format.extensions_str()[0]
-        );
+            );
 
-        let diff = buffer_content.iter().flat_map(|p| [p * 255.0, p * 255.0, p * 255.0, 1.0]).collect::<Vec<_>>();
-        let diff_file = format!(
+            /* let diff = buffer_content.iter().flat_map(|p| [p * 255.0, p * 255.0, p * 255.0, 1.0]).collect::<Vec<_>>();
+            let diff_file = format!(
             "{}/{}.{}",
             dir,
             img_num.to_string() + "_diff",
             screenshot_format.extensions_str()[0]
-        );
+            image::Rgba32FImage::from_raw(dim.0, dim.1, diff).unwrap().save_with_format(&diff_file, screenshot_format).unwrap();
+            ); */
 
-        Rgba32FImage::from_raw(dim.0, dim.1, norm).unwrap().save_with_format(&norm_file, screenshot_format).unwrap();
-        Rgba32FImage::from_raw(dim.0, dim.1, diff).unwrap().save_with_format(&diff_file, screenshot_format).unwrap();
-        ret.push(avg);
+            let image = image::Rgba32FImage::from_raw(dim.0, dim.1, norm).unwrap();
+            let image = image::imageops::resize(&image, true_res, true_res, image::imageops::FilterType::CatmullRom);
+            image.save_with_format(&norm_file, screenshot_format).unwrap();
+            eprint!("completed capture #{img_num}\r");
+            avg
+        });
+        thread_handles.push_back(handle);
+
+        while thread_handles.len() >= max_threads {
+            ret.push(thread_handles.pop_front().unwrap().join().unwrap());
+        }
     }
+    
+    ret.extend(thread_handles.into_iter().map(|h| {
+        h.join().unwrap()
+    }));
 
     println!("{}", dir);
     ret
