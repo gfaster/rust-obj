@@ -19,7 +19,7 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 
 use vulkano::device::{DeviceExtensions, DeviceOwned};
 use vulkano::format::Format;
-use vulkano::image::view::{ImageView};
+use vulkano::image::view::ImageView;
 use vulkano::image::{
     AttachmentImage, ImageAccess, ImageCreateFlags, ImageUsage, StorageImage,
     SwapchainImage,

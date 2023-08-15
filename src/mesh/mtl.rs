@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use image::RgbaImage;
+use image::{RgbaImage, GrayImage};
 
 use super::color::ColorFloat;
 
@@ -138,7 +138,8 @@ impl Material {
             curr_mat.to_string(),
             Material::new_with_name(curr_mat.to_string()),
         );
-        dbg!(&curr_mat);
+        let mut diffuse = None;
+        let mut alpha = None;
 
         for line in &lines[1..] {
             let tokens = &line.split_whitespace().collect::<Vec<_>>()[..];
@@ -146,9 +147,12 @@ impl Material {
             match tokens {
                 [] => return Err(MtlError::UnexpectedEol.into()),
                 ["newmtl", name] => {
+                    if let Some(prev) = registry.get_mut(curr_mat) {
+                        map_diffuse(diffuse.get_or_insert_with(Default::default), alpha.take());
+                        prev.diffuse_map = diffuse.take().map(|d| d.into());
+                    }
                     registry.insert(name.to_string(), Material::new_with_name(name.to_string()));
                     curr_mat = name;
-                    dbg!(&curr_mat);
                 }
                 ["Ka", r, g, b] => match registry.get_mut(curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
@@ -173,11 +177,19 @@ impl Material {
                             Some(read_map(path.as_ref().with_file_name(map_file))?.into())
                     }
                 },
-                ["map_Kd", map_file] | ["map_d", map_file] => match registry.get_mut(curr_mat) {
+                ["map_Kd", map_file] => match registry.get_mut(curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
-                    Some(mat) => {
-                        mat.diffuse_map =
-                            Some(read_map(path.as_ref().with_file_name(map_file))?.into())
+                    Some(_mat) => {
+                        if diffuse.is_some() { panic!("diffuse already set")}
+                        let mut initial_diffuse = read_map(path.as_ref().with_file_name(map_file))?;
+                        map_diffuse(&mut initial_diffuse, alpha.take());
+                        diffuse = Some(initial_diffuse);
+                    }
+                },
+                ["map_d", map_file] => match registry.get_mut(curr_mat) {
+                    None => return Err(MtlError::MissingDirective.into()),
+                    Some(_mat) => {
+                        alpha = map_alpha(&mut diffuse, read_map_grey(path.as_ref().with_file_name(map_file))?);
                     }
                 },
                 ["bump", map_file] | ["map_Bump", map_file] | ["map_bump", map_file] => match registry.get_mut(curr_mat) {
@@ -208,11 +220,48 @@ impl Material {
     }
 }
 
+/// sets the alpha of the texture if we have it
+fn map_diffuse(tex: &mut RgbaImage, grey: Option<GrayImage>) {
+    match grey {
+        Some(grey) => {
+            assert_eq!(tex.dimensions(), grey.dimensions());
+            for (pt, pa) in tex.pixels_mut().zip(grey.pixels()) {
+                pt.0[3] = pa.0[0];
+            }
+        }
+        None => {
+        }
+    }
+}
+
+/// sets the alpha of tex or returns the input if tex is none
+fn map_alpha(tex: &mut Option<RgbaImage>, img: GrayImage) -> Option<GrayImage> {
+    match tex {
+        Some(tex) => {
+            assert_eq!(tex.dimensions(), img.dimensions());
+            for (pt, pa) in tex.pixels_mut().zip(img.pixels()) {
+                pt.0[3] = pa.0[0];
+            }
+            None
+        }
+        None => {
+            Some(img)
+        }
+    }
+}
+
 fn read_map(path: impl AsRef<Path>) -> Result<RgbaImage, Box<dyn Error>> {
     Ok(image::io::Reader::open(path)?
         .with_guessed_format()?
         .decode()?
-        .to_rgba8())
+        .into_rgba8())
+}
+
+fn read_map_grey(path: impl AsRef<Path>) -> Result<GrayImage, Box<dyn Error>> {
+    Ok(image::io::Reader::open(path)?
+        .with_guessed_format()?
+        .decode()?
+        .into_luma8())
 }
 
 impl Default for Material {
