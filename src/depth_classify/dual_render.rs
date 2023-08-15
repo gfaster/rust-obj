@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -6,6 +7,7 @@ use std::thread::JoinHandle;
 
 
 
+use nalgebra::Complex;
 use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
@@ -334,6 +336,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         object_system_right.register_object_instances(instances);
     }
 
+    let dir = screenshot_dir().unwrap();
     let max_threads = ((1_usize << 33) / (dim.0 as usize* dim.1 as usize * (std::mem::size_of::<f64>() + 4 * std::mem::size_of::<f32>()))).clamp(1, 16);
     log!("using up to {max_threads} threads");
     let mut thread_handles = VecDeque::new();
@@ -489,6 +492,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         img_buffer.extend_from_slice(&buffer_content);
         let dir = dir.clone();
 
+        let screenshot_format = image::ImageFormat::OpenExr;
         let handle = std::thread::spawn(move || {
 
             let mut img_buffer = img_buffer.into_iter().map(|p| Complex::new(p as f64, 0.0)).collect::<Vec<_>>();

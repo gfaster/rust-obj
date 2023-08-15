@@ -6,6 +6,9 @@
 //! - put it all together in a command buffer
 //!
 //! I'm making separate structs for this instead of a trait because of how different they are
+//!
+//! Todo:
+//! -[ ] Lazy upload of textures if the set render mode doesn't need them
 
 use std::cell::Cell;
 use std::sync::Arc;
