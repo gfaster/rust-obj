@@ -13,12 +13,7 @@ mod error;
 mod mesh;
 mod wavefrontobj;
 
-#[cfg(feature = "glium")]
-mod grender;
 use std::f32::consts::TAU;
-
-#[cfg(feature = "glium")]
-use grender as renderer;
 
 #[cfg(feature = "vulkano")]
 mod vkrender;
