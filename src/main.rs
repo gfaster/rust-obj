@@ -30,9 +30,9 @@ fn main() {
     let obj = wavefrontobj::load(input).expect("pass a valid file path");
     // dbg!(obj.tris().collect::<Vec<_>>());
 
-    // renderer::display_model(obj);
+    renderer::display_model(obj);
     // screenshots(obj);
-    screenshots_compare(obj, std::env::args().nth(2).and_then(|a| a.parse().ok()).unwrap_or(10));
+    // screenshots_compare(obj, std::env::args().nth(2).and_then(|a| a.parse().ok()).unwrap_or(10));
 
     // let orbit_amt = glm::vec2(0.01, 0.0);
     // depth_classify::dual_render::display_duel_render(obj, orbit_amt);

@@ -366,10 +366,12 @@ where
         let first_idx = self.objects.len();
 
         let mut prev = 0;
+        // dbg!(&meta.materials);
         for (mtl_idx, material) in meta.materials.iter().enumerate() {
             let img = material
                 .1
                 .diffuse_map()
+                .filter(|i| i.width() > 0 && i.height() > 0)
                 .unwrap_or_else(|| Material::dev_texture().into());
             let dimensions = ImageDimensions::Dim2d {
                 width: img.width(),
@@ -389,12 +391,16 @@ where
             self.unloaded_texture_count.map_cell(|x| x + 1);
 
             let mid = material.0 as vulkano::DeviceSize * 3;
+            // dbg!(mid - prev);
             let split_indices;
-            if mid < indices.len() {
+            if (mid - prev) < indices.len() {
                 (split_indices, indices) = indices.split_at(mid - prev);
+                // (split_indices, indices) = indices.split_at(mid);
             } else {
                 split_indices = indices.clone();
             }
+            // dbg!(&split_indices.offset());
+            // dbg!(&split_indices.len());
             prev = mid;
 
             self.objects.push(ObjectInstance {

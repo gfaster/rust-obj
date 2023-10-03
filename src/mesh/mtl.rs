@@ -216,6 +216,10 @@ impl Material {
                 // _ => return Err(MtlError::InvalidDirective(line.to_string()).into()),
             }
         }
+        if let Some(prev) = registry.get_mut(curr_mat) {
+            map_diffuse(diffuse.get_or_insert_with(Default::default), alpha.take());
+            prev.diffuse_map = diffuse.take().map(|d| d.into());
+        }
         Ok(())
     }
 }

@@ -110,4 +110,5 @@
     ))
 
 ;; (packages->manifest (list shaderc-obj (make-libstdc++ gcc) renderdoc))
-(packages->manifest (list shaderc-obj renderdoc libxcb mesa qtbase-5 coreutils))
+;; (packages->manifest (list shaderc-obj renderdoc libxcb mesa qtbase-5))
+(packages->manifest (list shaderc-obj))

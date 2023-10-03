@@ -1,6 +1,8 @@
 pub mod init;
 pub mod render_systems;
 
+extern crate vulkano_shaders;
+
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
