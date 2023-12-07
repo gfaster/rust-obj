@@ -102,6 +102,7 @@ impl MeshData {
 }
 
 pub struct MeshData {
+    source_file: Option<String>,
     v: Vec<glm::Vec3>,
     vn: Vec<glm::Vec3>,
     vt: Vec<glm::Vec2>,
@@ -145,6 +146,7 @@ impl std::error::Error for MeshError {}
 impl MeshData {
     pub fn new() -> Self {
         MeshData {
+            source_file: None,
             v: vec![],
             vn: vec![],
             vt: vec![],
@@ -155,6 +157,14 @@ impl MeshData {
             running_center: Vec3::from([0.0, 0.0, 0.0]),
             running_volume: 0.0,
         }
+    }
+
+    pub fn source(&self) -> Option<&str> {
+        self.source_file.as_deref()
+    }
+
+    pub fn specify_source(&mut self, src: impl AsRef<str>) {
+        self.source_file = Some(src.as_ref().into());
     }
 
     /// makes a copy of the mesh metadata so the original can be converted to databuffs

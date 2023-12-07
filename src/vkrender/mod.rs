@@ -553,6 +553,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         descriptor_set_allocator.clone(),
     );
 
+    let dir = screenshot_dir(m.source()).unwrap();
     object_system.register_object(m, glm::identity());
 
     let framebuffer = {
@@ -576,7 +577,6 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     // initialization done!
 
     let screenshot_format = image::ImageFormat::OpenExr;
-    let dir = screenshot_dir().unwrap();
     let mut ret = vec![];
     let mut cam = Camera::new(dim.0 as f32 / dim.1 as f32);
     for (img_num, pos) in pos.iter().enumerate() {
@@ -638,12 +638,19 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
     ret
 }
 
-pub fn screenshot_dir() -> Result<String, Box<dyn std::error::Error>> {
+pub fn screenshot_dir(name: Option<&str>) -> Result<String, Box<dyn std::error::Error>> {
     let dir_path = format!("{}/Pictures/rust_obj", std::env::var("HOME")?);
+    let now = chrono::DateTime::<chrono::Local>::from(std::time::SystemTime::now()).to_rfc3339();
+    let dir_name = if let Some(name) = name {
+        let pid = std::process::id();
+        format!("{now}_{name}_{pid}")
+    } else {
+        let pid = std::process::id();
+        format!("{now}_unknown_{pid}")
+    };
     let base_path = format!(
-        "{}/Pictures/rust_obj/{}",
+        "{}/Pictures/rust_obj/{dir_name}",
         std::env::var("HOME")?,
-        std::process::id()
     );
 
     std::fs::create_dir(dir_path).map_or_else(

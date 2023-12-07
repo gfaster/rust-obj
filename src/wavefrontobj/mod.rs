@@ -161,6 +161,7 @@ fn parse_face(tokens: &[&str]) -> ObjResult<[VertexIndexed; 3]> {
 
 pub fn load(path: impl AsRef<Path>) -> std::io::Result<mesh::MeshData> {
     let mut buf = BufReader::new(std::fs::File::open(&path)?);
+    let src = path.as_ref().file_stem().map(|f| f.to_string_lossy().to_owned());
     let mut line = String::new();
 
     let mut objmesh = mesh::MeshData::new();
@@ -193,6 +194,10 @@ pub fn load(path: impl AsRef<Path>) -> std::io::Result<mesh::MeshData> {
     }
 
     log!("{:?} loaded with {:#} total triangles", path.as_ref().file_name().unwrap(), objmesh.tri_cnt());
+
+    if let Some(src) = src {
+        objmesh.specify_source(src);
+    }
 
     Ok(objmesh)
 }

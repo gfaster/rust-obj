@@ -30,7 +30,7 @@ use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
 use vulkano::pipeline::graphics::vertex_input::Vertex;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
-use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint};
+use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 
 use vulkano::shader::ShaderModule;
@@ -72,6 +72,7 @@ fn transpose<T: Copy + Default>(width: usize, height: usize, matrix: &[T]) -> Ve
     transposed
 }
 
+const SAVE_CNT: u32 = 4;
 const COMPUTE_PIXELS_PER_INVOCATION: u64 = 1024;
 pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32> {
     // I'm using the Vulkano examples to learn here
@@ -98,6 +99,8 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         ..DeviceExtensions::empty()
     };
 
+    let src_file = m.source().map(|s| s.to_owned());
+
     let (device, queue) = crate::vkrender::init::initialize_device(device_extensions);
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
@@ -114,8 +117,8 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         image_format,
         ImageUsage::TRANSFER_SRC
             | ImageUsage::COLOR_ATTACHMENT
-            | ImageUsage::STORAGE
-            | ImageUsage::SAMPLED,
+            | ImageUsage::STORAGE,
+            // | ImageUsage::SAMPLED,
         ImageCreateFlags::default(),
         Some(queue.queue_family_index()),
     )
@@ -128,20 +131,20 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
     //     }
     // }
 
-    let device_local_render = Buffer::new_slice::<f32>(
-        &memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_DST | BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            usage: MemoryUsage::DeviceOnly,
-            ..Default::default()
-        },
-        (dim.0 * dim.1) as u64
-            * (image_format.block_size().unwrap() / std::mem::size_of::<f32>() as u64),
-    )
-    .unwrap();
+    // let device_local_render = Buffer::new_slice::<f32>(
+    //     &memory_allocator,
+    //     BufferCreateInfo {
+    //         usage: BufferUsage::TRANSFER_DST | BufferUsage::STORAGE_BUFFER,
+    //         ..Default::default()
+    //     },
+    //     AllocationCreateInfo {
+    //         usage: MemoryUsage::DeviceOnly,
+    //         ..Default::default()
+    //     },
+    //     (dim.0 * dim.1) as u64
+    //         * (image_format.block_size().unwrap() / std::mem::size_of::<f32>() as u64),
+    // )
+    // .unwrap();
 
     assert_eq!(
         (dim.0 * dim.1) as u64 % (128 * COMPUTE_PIXELS_PER_INVOCATION),
@@ -150,14 +153,14 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
     let result_buffer = Buffer::new_slice::<f32>(
         &memory_allocator,
         BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
+            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
             ..Default::default()
         },
         AllocationCreateInfo {
             usage: MemoryUsage::Download,
             ..Default::default()
         },
-        (dim.0 * dim.1) as u64 / COMPUTE_PIXELS_PER_INVOCATION,
+        (dim.0 * dim.1) as u64,
     )
     .unwrap();
 
@@ -165,8 +168,8 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
     let fs_cmp_entry = fs_cmp.entry_point("main").unwrap();
     let vs_cmp = cmp_vs::load(device.clone()).unwrap();
     let vs_cmp_entry = vs_cmp.entry_point("main").unwrap();
-    let cs_cmp = cmp_cs::load(device.clone()).unwrap_or_else(|e| panic!("{e}"));
-    let cs_cmp_entry = cs_cmp.entry_point("main").unwrap();
+    // let cs_cmp = cmp_cs::load(device.clone()).unwrap_or_else(|e| panic!("{e}"));
+    // let cs_cmp_entry = cs_cmp.entry_point("main").unwrap();
 
     // now to initialize the pipelines - this is completely foreign to opengl
     let render_pass = vulkano::ordered_passes_renderpass!(
@@ -276,8 +279,8 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         .build(memory_allocator.device().clone())
         .unwrap();
 
-    let pipeline_compute =
-        ComputePipeline::new(device.clone(), cs_cmp_entry, &(), None, |_| {}).unwrap();
+    // let pipeline_compute =
+    //     ComputePipeline::new(device.clone(), cs_cmp_entry, &(), None, |_| {}).unwrap();
 
     let view = ImageView::new_default(image.clone()).unwrap();
 
@@ -336,20 +339,22 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         object_system_right.register_object_instances(instances);
     }
 
-    let dir = screenshot_dir().unwrap();
+    let dir = screenshot_dir(src_file.as_deref()).unwrap();
     let max_threads = ((1_usize << 33) / (dim.0 as usize* dim.1 as usize * (std::mem::size_of::<f64>() + 4 * std::mem::size_of::<f32>()))).clamp(1, 16);
     log!("using up to {max_threads} threads");
     let mut thread_handles = VecDeque::new();
 
     // initialization done!
 
-    let sampler = vulkano::sampler::Sampler::new(
-        device.clone(),
-        vulkano::sampler::SamplerCreateInfo::simple_repeat_linear_no_mipmap(),
-    )
-    .unwrap();
+    // let sampler = vulkano::sampler::Sampler::new(
+    //     device.clone(),
+    //     vulkano::sampler::SamplerCreateInfo::simple_repeat_linear_no_mipmap(),
+    // )
+    // .unwrap();
     let mut ret = vec![];
+    let mut saves = 0;
     for (img_num, pos_pair) in pos.iter().enumerate() {
+        saves += 1;
         let mut builder = AutoCommandBufferBuilder::primary(
             &command_buffer_allocator,
             queue.queue_family_index(),
@@ -370,18 +375,18 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             .unwrap()
         };
 
-        let layout_compute = pipeline_compute.layout().set_layouts().get(0).unwrap();
-        let set_compute = {
-            PersistentDescriptorSet::new(
-                &descriptor_set_allocator,
-                layout_compute.clone(),
-                [
-                    WriteDescriptorSet::image_view_sampler(0, view.clone(), sampler.clone()),
-                    WriteDescriptorSet::buffer(1, result_buffer.clone()),
-                ],
-            )
-            .unwrap()
-        };
+        // let layout_compute = pipeline_compute.layout().set_layouts().get(0).unwrap();
+        // let set_compute = {
+        //     PersistentDescriptorSet::new(
+        //         &descriptor_set_allocator,
+        //         layout_compute.clone(),
+        //         [
+        //             WriteDescriptorSet::image_view_sampler(0, view.clone(), sampler.clone()),
+        //             WriteDescriptorSet::buffer(1, result_buffer.clone()),
+        //         ],
+        //     )
+        //     .unwrap()
+        // };
 
         // we are allowed to not do a render pass if we use dynamic
         builder
@@ -428,22 +433,23 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             .unwrap()
             .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
                 image.clone(),
-                device_local_render.clone(),
+                // device_local_render.clone(),
+                result_buffer.clone()
             ))
-            .unwrap()
-            .bind_descriptor_sets(
-                PipelineBindPoint::Compute,
-                pipeline_compute.layout().clone(),
-                0,
-                set_compute,
-            )
-            .bind_pipeline_compute(pipeline_compute.clone())
-            .dispatch([
-                (dim.0 as u64 * dim.1 as u64 / (128 * COMPUTE_PIXELS_PER_INVOCATION)) as u32,
-                1,
-                1,
-            ])
             .unwrap();
+            // .bind_descriptor_sets(
+            //     PipelineBindPoint::Compute,
+            //     pipeline_compute.layout().clone(),
+            //     0,
+            //     set_compute,
+            // )
+            // .bind_pipeline_compute(pipeline_compute.clone())
+            // .dispatch([
+            //     (dim.0 as u64 * dim.1 as u64 / (128 * COMPUTE_PIXELS_PER_INVOCATION)) as u32,
+            //     1,
+            //     1,
+            // ])
+            // .unwrap();
 
         let command_buffer = builder.build().unwrap();
 
@@ -493,11 +499,21 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
         let dir = dir.clone();
 
         let screenshot_format = image::ImageFormat::OpenExr;
+        let saves = saves;
         let handle = std::thread::spawn(move || {
-
+            if saves <= SAVE_CNT {
+                let diff = img_buffer.iter().flat_map(|p| [p * 255.0, p * 255.0, p * 255.0, 1.0]).collect::<Vec<_>>();
+                let diff_file = format!(
+                    "{}/{}.{}",
+                    dir,
+                    img_num.to_string() + "_diff",
+                    screenshot_format.extensions_str()[0]);
+                image::Rgba32FImage::from_raw(dim.0, dim.1, diff).unwrap().save_with_format(&diff_file, screenshot_format).unwrap();
+            }
             let mut img_buffer = img_buffer.into_iter().map(|p| Complex::new(p as f64, 0.0)).collect::<Vec<_>>();
 
             // doing fft to pixel difference
+            assert_eq!((dim.0 as usize) * (dim.1 as usize), img_buffer.len());
             fft_2d(dim.0 as usize, dim.1 as usize, &mut img_buffer);
             img_buffer = transpose(dim.0 as usize, dim.1 as usize, &mut img_buffer);
 
@@ -556,25 +572,21 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
             .collect::<Vec<_>>();
             let true_res = dim.0.min(1<<10);
 
-            let norm_file = format!(
-            "{}/{}.{}",
-            dir,
-            img_num.to_string() + "_norm",
-            screenshot_format.extensions_str()[0]
-            );
+            if saves <= SAVE_CNT {
+                {
+                    let norm_file = format!(
+                        "{}/{}.{}",
+                        dir,
+                        img_num.to_string() + "_norm",
+                        screenshot_format.extensions_str()[0]
+                    );
 
-            /* let diff = buffer_content.iter().flat_map(|p| [p * 255.0, p * 255.0, p * 255.0, 1.0]).collect::<Vec<_>>();
-            let diff_file = format!(
-            "{}/{}.{}",
-            dir,
-            img_num.to_string() + "_diff",
-            screenshot_format.extensions_str()[0]
-            image::Rgba32FImage::from_raw(dim.0, dim.1, diff).unwrap().save_with_format(&diff_file, screenshot_format).unwrap();
-            ); */
 
-            let image = image::Rgba32FImage::from_raw(dim.0, dim.1, norm).unwrap();
-            let image = image::imageops::resize(&image, true_res, true_res, image::imageops::FilterType::CatmullRom);
-            image.save_with_format(&norm_file, screenshot_format).unwrap();
+                    let image = image::Rgba32FImage::from_raw(dim.0, dim.1, norm).unwrap();
+                    let image = image::imageops::resize(&image, true_res, true_res, image::imageops::FilterType::CatmullRom);
+                    image.save_with_format(&norm_file, screenshot_format).unwrap();
+                }
+            }
             eprint!("completed capture #{img_num}\r");
             avg
         });
