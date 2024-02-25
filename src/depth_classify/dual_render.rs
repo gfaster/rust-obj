@@ -606,7 +606,7 @@ pub fn depth_compare(m: MeshData, dim: (u32, u32), pos: &[[Vec3; 2]]) -> Vec<f32
 }
 
 const INTERMEDIATE_IMAGE_FORMAT: Format = vulkano::format::Format::R32_SFLOAT;
-pub fn display_duel_render(m: MeshData, orbit_amt: glm::Vec2) {
+pub fn display_dual_render(m: MeshData, orbit_amt: glm::Vec2) {
     let (device, queue, surface, event_loop) = initialize_device_window(DeviceExtensions {
         khr_swapchain: true,
         ..DeviceExtensions::empty()

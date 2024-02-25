@@ -168,6 +168,9 @@ pub fn load(path: impl AsRef<Path>) -> std::io::Result<mesh::MeshData> {
     let mut mtl_registry = HashMap::new();
     let mut curr_mat = None;
 
+    const ERROR_MAX: u32 = 1000;
+    let mut error_cnt = 0;
+
     while buf.read_line(&mut line).map_or(0, |x| x) != 0 {
         read_line(
             line.as_str(),
@@ -178,7 +181,12 @@ pub fn load(path: impl AsRef<Path>) -> std::io::Result<mesh::MeshData> {
         )
         .unwrap_or_else(|e| {
             eprintln!("{:?} could not be read with error {e}", line);
+            error_cnt += 1;
         });
+        if error_cnt >= ERROR_MAX {
+            eprintln!("Too many errors ({ERROR_MAX}): aborting");
+            return Err(std::io::ErrorKind::InvalidData.into())
+        }
         line.clear();
     }
 
