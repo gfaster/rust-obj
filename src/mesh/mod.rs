@@ -348,6 +348,12 @@ impl MeshData {
             tri_index: 0,
         }
     }
+
+    pub fn tri_indices(&self) -> impl Iterator<Item = [u32; 3]> + '_ {
+        self.f
+            .chunks_exact(3)
+            .map(|a| [a[0].pos, a[1].pos, a[2].pos])
+    }
 }
 
 pub struct MeshEdgeIterator<'a> {

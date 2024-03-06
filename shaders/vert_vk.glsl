@@ -11,6 +11,7 @@ layout(location = 1) out vec3 v_fragNorm;
 layout(location = 2) out vec2 v_texCoord;
 layout(location = 3) out float v_depth;
 layout(location = 4) out vec3 v_camPos;
+layout(location = 5) out int face_id;
 
 
 // rust structs are generated from this struct name
@@ -40,6 +41,7 @@ void main()
 
   v_camPos = CamAttr.pos - v_fragPos;
 
+  face_id = gl_VertexIndex / 3;
   gl_Position = CamAttr.projection_matrix * modelview * pos;
   v_depth = gl_Position.z / CamAttr.far;
 }

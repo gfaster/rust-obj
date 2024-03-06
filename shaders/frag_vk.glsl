@@ -1,6 +1,6 @@
 #version 460
 
-layout(location = 0) out float FragColor;
+layout(location = 0) out vec4 FragColor;
 
 layout(location = 0) in vec3 v_fragPos;
 layout(location = 1) in vec3 v_fragNorm;
@@ -15,6 +15,8 @@ layout(set = 1, binding = 2) uniform ShaderMtl {
     vec4 base_specular;
     float base_specular_factor;
     bool use_sampler;
+    uint tri_start;
+    bool use_clusters;
 } Mtl;
 
 // rust structs are generated from this struct name
@@ -25,6 +27,10 @@ layout(set = 0, binding = 3) uniform ShaderLight {
 } Light;
 
 layout(set = 1, binding = 4) uniform sampler2D s_tex;
+
+layout(set = 1, binding = 5) readonly buffer ClusterData {
+    uint data[];
+} clusterData;
 
 
 vec4 diffuse(vec3 base_color) {
@@ -52,20 +58,34 @@ vec4 color_correct(vec4 color) {
     return color;
 }
 
+vec3 cluster_color(uint id) {
+    /* adopted from this https://stackoverflow.com/a/12996028/7487237 */
+    uint x = id;
+    x = ((x >> 16) ^ x) * 0x45d9f3bu;
+    x = ((x >> 16) ^ x) * 0x45d9f3bu;
+    x = (x >> 16) ^ x;
+
+    vec3 ret;
+    ret.r = float((x >> 0) % (1u << 8)) / float(1u<<8);
+    ret.g = float((x >> 8) % (1u << 8)) / float(1u<<8);
+    ret.b = float((x >> 16) % (1u << 8)) / float(1u<<8);
+
+    return ret;
+}
 
 void main()
 {
     vec4 base_color;
     if (Mtl.use_sampler) {
         base_color = texture(s_tex, v_texCoord);
+        if (base_color.w < 0.1) {
+            discard;
+        }
+    } else if (Mtl.use_clusters) {
+        base_color = vec4(cluster_color(Mtl.tri_start + gl_PrimitiveID), 1.0f);
     } else {
         base_color = Mtl.base_diffuse;
     }
 
-    if (base_color.w < 0.1) {
-        discard;
-    }
-
-    vec4 temp = color_correct(diffuse(base_color.xyz));
-    FragColor = depth_buffer().x;
+    FragColor = base_color;
 }

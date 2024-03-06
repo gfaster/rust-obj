@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use image::{RgbaImage, GrayImage};
+use image::{GrayImage, RgbaImage};
 
 use super::color::ColorFloat;
 
@@ -180,7 +180,9 @@ impl Material {
                 ["map_Kd", map_file] => match registry.get_mut(curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(_mat) => {
-                        if diffuse.is_some() { panic!("diffuse already set")}
+                        if diffuse.is_some() {
+                            panic!("diffuse already set")
+                        }
                         let mut initial_diffuse = read_map(path.as_ref().with_file_name(map_file))?;
                         map_diffuse(&mut initial_diffuse, alpha.take());
                         diffuse = Some(initial_diffuse);
@@ -189,16 +191,21 @@ impl Material {
                 ["map_d", map_file] => match registry.get_mut(curr_mat) {
                     None => return Err(MtlError::MissingDirective.into()),
                     Some(_mat) => {
-                        alpha = map_alpha(&mut diffuse, read_map_grey(path.as_ref().with_file_name(map_file))?);
+                        alpha = map_alpha(
+                            &mut diffuse,
+                            read_map_grey(path.as_ref().with_file_name(map_file))?,
+                        );
                     }
                 },
-                ["bump", map_file] | ["map_Bump", map_file] | ["map_bump", map_file] => match registry.get_mut(curr_mat) {
-                    None => return Err(MtlError::MissingDirective.into()),
-                    Some(mat) => {
-                        mat.normal_map =
-                            Some(read_map(path.as_ref().with_file_name(map_file))?.into())
+                ["bump", map_file] | ["map_Bump", map_file] | ["map_bump", map_file] => {
+                    match registry.get_mut(curr_mat) {
+                        None => return Err(MtlError::MissingDirective.into()),
+                        Some(mat) => {
+                            mat.normal_map =
+                                Some(read_map(path.as_ref().with_file_name(map_file))?.into())
+                        }
                     }
-                },
+                }
                 ["Pm", _] => (),
                 ["Ps", _] => (),
                 ["Pc", _] => (),
@@ -212,8 +219,7 @@ impl Material {
                 ["d", _d] => (),
                 _ => {
                     log!("unknown directive: {:?}", line);
-                }
-                // _ => return Err(MtlError::InvalidDirective(line.to_string()).into()),
+                } // _ => return Err(MtlError::InvalidDirective(line.to_string()).into()),
             }
         }
         if let Some(prev) = registry.get_mut(curr_mat) {
@@ -233,8 +239,7 @@ fn map_diffuse(tex: &mut RgbaImage, grey: Option<GrayImage>) {
                 pt.0[3] = pa.0[0];
             }
         }
-        None => {
-        }
+        None => {}
     }
 }
 
@@ -248,9 +253,7 @@ fn map_alpha(tex: &mut Option<RgbaImage>, img: GrayImage) -> Option<GrayImage> {
             }
             None
         }
-        None => {
-            Some(img)
-        }
+        None => Some(img),
     }
 }
 

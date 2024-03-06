@@ -13,7 +13,7 @@
 use std::cell::Cell;
 use std::sync::Arc;
 use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
-use vulkano::buffer::BufferUsage;
+use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
     PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, SecondaryAutoCommandBuffer,
@@ -22,6 +22,7 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
 use vulkano::image::{ImageDimensions, ImmutableImage};
+use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage};
 use vulkano::pipeline::graphics::color_blend::ColorBlendState;
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::vertex_input::Vertex;
@@ -41,6 +42,7 @@ use vulkano::{
 };
 
 use crate::mesh::{MeshData, MeshDataBuffs};
+use crate::partition;
 use crate::util::CellMap;
 use crate::{
     controls::Camera,
@@ -268,6 +270,7 @@ where
 
         for object in &self.objects {
             let (s_mat, s_mtl) = generate_uniforms_1(&object);
+            let s_part = object.partition.clone().unwrap();
             let set_1 = PersistentDescriptorSet::new(
                 &self.descset_allocator,
                 layout_1.clone(),
@@ -277,13 +280,15 @@ where
                     (s_mtl, fs::MTL_BINDING)
                 }
                 .into_iter()
-                .chain([WriteDescriptorSet::image_view_sampler(
-                    fs::SAMPLER_BINDING,
-                    object.texture.clone(),
-                    sampler.clone(),
-                )]),
-            )
-            .unwrap();
+                // .chain([WriteDescriptorSet::image_view_sampler(
+                //     fs::SAMPLER_BINDING,
+                //     object.texture.clone(),
+                //     sampler.clone(),
+                // ),])
+                    .chain([
+                        WriteDescriptorSet::buffer(fs::CLUSTER_BINDING, s_part)
+                    ]),
+            ).unwrap_or_else(|e| panic!("{e:?}"));
 
             builder
                 .bind_descriptor_sets(
@@ -335,7 +340,18 @@ where
         self.pipeline = pipeline;
     }
 
-    pub fn register_object(&mut self, object: MeshData, transform: glm::Mat4) -> &[ObjectInstance] {
+    pub fn register_object(&mut self, object: MeshData, transform: glm::Mat4, do_part: bool) -> &[ObjectInstance] {
+        let part: Option<Arc<[i32]>>;
+        if do_part {
+            if let Some(succ) = partition::partition_mesh(&object) {
+                part = Some(succ.into());
+            } else {
+                log!("Parition failed");
+                part = None
+            }
+        } else {
+            part = None;
+        }
         let meta = object.get_meta();
         let mesh_buffs: MeshDataBuffs<VkVertex> = object.into();
 
@@ -352,6 +368,26 @@ where
             .write()
             .unwrap()
             .copy_from_slice(&mesh_buffs.indices);
+
+
+        let part = if let Some(ref part) = part {
+            let part_buf = Buffer::from_iter(
+                &self.memory_allocator,
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    usage: MemoryUsage::Upload,
+                    ..Default::default()
+                },
+                part.into_iter().copied()
+            )
+                .unwrap();
+            Some(part_buf)
+        } else {
+            None
+        };
 
         // take because lifetimes are annoying here
         let mut upload_cmdbuf = self.upload_cmdbuf.take().unwrap_or_else(|| {
@@ -406,6 +442,7 @@ where
             self.objects.push(ObjectInstance {
                 vertices: vertices.clone(),
                 indices: split_indices,
+                partition: part.clone(),
                 meta: meta.clone(),
                 mtl_idx,
                 transform,
@@ -427,6 +464,7 @@ where
 pub struct ObjectInstance {
     vertices: Subbuffer<[VkVertex]>,
     indices: Subbuffer<[u32]>,
+    partition: Option<Subbuffer<[i32]>>,
     meta: MeshMeta,
     mtl_idx: usize,
     texture: Arc<ImageView<ImmutableImage>>,
@@ -517,6 +555,7 @@ pub mod fs {
     pub const MTL_BINDING: u32 = 2;
     pub const LIGHT_BINDING: u32 = 3;
     pub const SAMPLER_BINDING: u32 = 4;
+    pub const CLUSTER_BINDING: u32 = 5;
 
     // declaration of ShaderMtl from macro parsing of frag_vk.glsl
     impl From<Material> for ShaderMtl {
@@ -527,6 +566,8 @@ pub mod fs {
                 base_specular: value.specular().into(),
                 base_specular_factor: value.base_specular_factor(),
                 use_sampler: value.diffuse_map().is_some() as u32,
+                tri_start: 0,
+                use_clusters: true as u32,
             }
         }
     }

@@ -52,6 +52,8 @@ use render_systems::object_system::ObjectSystem;
 use self::render_systems::ui_system::UiSystem;
 
 pub mod consts {
+    #![allow(unused)]
+
     use nalgebra::ArrayStorage;
     pub const FORWARD: glm::Vec3 =
         glm::Vec3::from_array_storage(ArrayStorage([[0.0, 0.0, -1.0f32]]));
@@ -230,7 +232,7 @@ pub fn display_model(m: mesh::MeshData) {
         descriptor_set_allocator.clone(),
     );
 
-    object_system.register_object(m, glm::Mat4::identity());
+    object_system.register_object(m, glm::Mat4::identity(), true);
 
     let mut viewport = Viewport {
         origin: [0.0, 0.0],
@@ -553,7 +555,7 @@ pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<Stri
         descriptor_set_allocator.clone(),
     );
 
-    object_system.register_object(m, glm::identity());
+    object_system.register_object(m, glm::identity(), false);
 
     let framebuffer = {
         let depth_buffer = ImageView::new_default(

@@ -68,7 +68,11 @@ fn read_line(
                     .with_file_name(tokens.get(1).ok_or(WavefrontObjError::MissingArguments)?),
                 mtl_registry,
             )
-            .unwrap_or_else(|e| {log!("{e}"); log!("using default mtl"); Default::default()});
+            .unwrap_or_else(|e| {
+                log!("{e}");
+                log!("using default mtl");
+                Default::default()
+            });
             //*curr_mat = Some(mtl_registry.keys().next().ok_or(WavefrontObjError::MissingMaterial).unwrap().clone());
         }
         "usemtl" => {
@@ -192,7 +196,11 @@ pub fn load(path: impl AsRef<Path>) -> std::io::Result<mesh::MeshData> {
         ),
     }
 
-    log!("{:?} loaded with {:#} total triangles", path.as_ref().file_name().unwrap(), objmesh.tri_cnt());
+    log!(
+        "{:?} loaded with {:#} total triangles",
+        path.as_ref().file_name().unwrap(),
+        objmesh.tri_cnt()
+    );
 
     Ok(objmesh)
 }

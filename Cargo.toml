@@ -14,5 +14,6 @@ image = "0.24.6"
 nalgebra = {version = "0.32.2", features = ["bytemuck"]}
 nalgebra-glm = {version = "0.18.0", features = ["convert-bytemuck"]}
 winit = "0.28.6"
+metis = {git = "https://github.com/gfaster/METIS.git"}
 
 [features]
