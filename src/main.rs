@@ -4,7 +4,6 @@
 
 extern crate nalgebra_glm as glm;
 
-
 #[macro_use]
 mod util;
 

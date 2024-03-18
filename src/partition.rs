@@ -31,7 +31,10 @@ fn tri_csr(mesh: &MeshData) -> Csr {
         for vtx in tri {
             neighbors.extend_from_slice(&vtx_map[&vtx]);
         }
-        let uniq: HashSet<_> = neighbors.drain(..).filter(|&i| i as u32 != idx as u32).collect();
+        let uniq: HashSet<_> = neighbors
+            .drain(..)
+            .filter(|&i| i as u32 != idx as u32)
+            .collect();
         adjncy.extend(uniq);
     }
     xadj.push(adjncy.len() as i32);
@@ -40,7 +43,10 @@ fn tri_csr(mesh: &MeshData) -> Csr {
 }
 
 pub fn partition_mesh(mesh: &MeshData) -> Option<Vec<i32>> {
-    let Csr { mut xadj, mut adjncy } = tri_csr(mesh);
+    let Csr {
+        mut xadj,
+        mut adjncy,
+    } = tri_csr(mesh);
 
     let mut nvtxs = xadj.len() as i32 - 1;
 
@@ -73,16 +79,17 @@ pub fn partition_mesh(mesh: &MeshData) -> Option<Vec<i32>> {
     };
 
     if res != metis::METIS_OK {
-        return None
+        return None;
     }
 
     Some(part)
 }
 
-
 pub fn partition_mesh_2(mesh: &MeshData) -> Option<Vec<i32>> {
-    let Csr { mut xadj, mut adjncy } = tri_csr(mesh);
-
+    let Csr {
+        mut xadj,
+        mut adjncy,
+    } = tri_csr(mesh);
 
     let mut nn = xadj.len() as i32 - 1;
 
@@ -117,7 +124,7 @@ pub fn partition_mesh_2(mesh: &MeshData) -> Option<Vec<i32>> {
     };
 
     if res != metis::METIS_OK {
-        return None
+        return None;
     }
 
     Some(epart)

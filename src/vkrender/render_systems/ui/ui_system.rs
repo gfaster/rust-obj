@@ -11,20 +11,26 @@ use vulkano::command_buffer::{
 };
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 
-use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage};
+use vulkano::device::Device;
+use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator};
 
+use vulkano::pipeline::graphics::color_blend::{ColorBlendAttachmentState, ColorBlendState};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
-use vulkano::pipeline::graphics::vertex_input::Vertex;
+use vulkano::pipeline::graphics::multisample::MultisampleState;
+use vulkano::pipeline::graphics::rasterization::RasterizationState;
+use vulkano::pipeline::graphics::vertex_input::{Vertex, VertexDefinition};
+use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
 use vulkano::pipeline::graphics::{input_assembly::InputAssemblyState, viewport::Viewport};
-use vulkano::pipeline::Pipeline;
+use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
 use vulkano::pipeline::PipelineBindPoint;
+use vulkano::pipeline::{Pipeline, PipelineLayout, PipelineShaderStageCreateInfo};
 
+use vulkano::shader::EntryPoint;
 use vulkano::{
     buffer::Subbuffer,
     command_buffer::allocator::StandardCommandBufferAllocator,
     descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::Queue,
-    memory::allocator::MemoryAllocator,
     pipeline::{graphics::viewport::ViewportState, GraphicsPipeline},
     render_pass::Subpass,
 };
@@ -42,10 +48,7 @@ const TEXT_CELLS: usize = 2400;
 ///
 /// Goal: https://vkguide.dev/docs/gpudriven/gpu_driven_engines/
 /// Stretch goal: https://www.nvidia.com/content/GTC-2010/pdfs/2152_GTC2010.pdf
-pub struct UiSystem<Allocator>
-where
-    Arc<Allocator>: MemoryAllocator,
-{
+pub struct UiSystem {
     text: Box<[u32; TEXT_CELLS]>,
     cursor: usize,
     font_meta: fs::ShaderFontMeta,
@@ -56,11 +59,11 @@ where
     gfx_queue: Arc<Queue>,
     cmdbuf_allocator: Arc<StandardCommandBufferAllocator>,
     descset_allocator: Arc<StandardDescriptorSetAllocator>,
-    memory_allocator: Arc<Allocator>,
+    memory_allocator: Arc<StandardMemoryAllocator>,
 
     /// the subbuffer allocator is owned because I think it may be better for reducing
     /// fragmentation
-    uniform_buffer: SubbufferAllocator<Arc<Allocator>>,
+    uniform_buffer: SubbufferAllocator<StandardMemoryAllocator>,
     vertex_buffer: Subbuffer<[VkVertex]>,
     bitmap_buffer: Subbuffer<[u32]>,
 }
@@ -76,15 +79,12 @@ macro_rules! subbuffer_write_descriptors {
     }
 }
 
-impl<Allocator> UiSystem<Allocator>
-where
-    Arc<Allocator>: MemoryAllocator,
-{
+impl UiSystem {
     pub fn new(
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
         dimensions: [f32; 2],
-        memory_allocator: Arc<Allocator>,
+        memory_allocator: Arc<StandardMemoryAllocator>,
         command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
         descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     ) -> Self {
@@ -95,6 +95,8 @@ where
             memory_allocator.clone(),
             SubbufferAllocatorCreateInfo {
                 buffer_usage: BufferUsage::UNIFORM_BUFFER,
+                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE
+                    | MemoryTypeFilter::PREFER_DEVICE,
                 ..Default::default()
             },
         );
@@ -104,13 +106,14 @@ where
         let font = super::font::Font::parse_bdf(&mut reader).unwrap_or_else(|e| panic!("{}", e));
 
         let bitmap_buffer = Buffer::from_iter(
-            &memory_allocator,
+            memory_allocator.clone(),
             BufferCreateInfo {
                 usage: BufferUsage::STORAGE_BUFFER,
                 ..Default::default()
             },
             AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
+                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE
+                    | MemoryTypeFilter::PREFER_DEVICE,
                 ..Default::default()
             },
             font.flat_bitmaps(),
@@ -118,35 +121,27 @@ where
         .unwrap();
 
         let vertex_buffer = Buffer::from_iter(
-            &memory_allocator,
+            memory_allocator.clone(),
             BufferCreateInfo {
                 usage: BufferUsage::VERTEX_BUFFER,
                 ..Default::default()
             },
             AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
+                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE
+                    | MemoryTypeFilter::PREFER_DEVICE,
                 ..Default::default()
             },
-            crate::mesh::primative::frame().to_tri_list(),
+            crate::mesh::primitive::frame().to_tri_list(),
         )
         .unwrap();
 
-        let pipeline = GraphicsPipeline::start()
-            .render_pass(subpass.clone())
-            .vertex_input_state(VkVertex::per_vertex())
-            .input_assembly_state(InputAssemblyState::new())
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-                Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions,
-                    depth_range: 0.0..1.0,
-                },
-            ]))
-            .depth_stencil_state(DepthStencilState::disabled())
-            .build(gfx_queue.device().clone())
-            .unwrap();
+        let pipeline = Self::make_pipeline(
+            gfx_queue.device().clone(),
+            subpass.clone(),
+            vs.entry_point("main").unwrap(),
+            fs.entry_point("main").unwrap(),
+            dimensions,
+        );
 
         Self {
             text: Box::new([0 as u32; 2400]),
@@ -164,7 +159,61 @@ where
         }
     }
 
-    pub fn draw(&self) -> SecondaryAutoCommandBuffer {
+    fn make_pipeline(
+        device: Arc<Device>,
+        subpass: Subpass,
+        vs_entry: EntryPoint,
+        fs_entry: EntryPoint,
+        extent: [f32; 2],
+    ) -> Arc<GraphicsPipeline> {
+        let vertex_input_state = [VkVertex::per_vertex()]
+            .definition(&vs_entry.info().input_interface)
+            .unwrap();
+        let stages = [
+            PipelineShaderStageCreateInfo::new(vs_entry.clone()),
+            PipelineShaderStageCreateInfo::new(fs_entry.clone()),
+        ];
+
+        let layout = PipelineLayout::new(
+            device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(device.clone())
+                .unwrap(),
+        )
+        .unwrap();
+
+        GraphicsPipeline::new(
+            device,
+            None,
+            GraphicsPipelineCreateInfo {
+                stages: stages.into_iter().collect(),
+                vertex_input_state: Some(vertex_input_state),
+                input_assembly_state: Some(InputAssemblyState::default()),
+                viewport_state: Some(ViewportState {
+                    viewports: [Viewport {
+                        offset: [0.0, 0.0],
+                        extent: [extent[0] as f32, extent[1] as f32],
+                        depth_range: 0.0..=1.0,
+                    }]
+                    .into_iter()
+                    .collect(),
+                    ..Default::default()
+                }),
+                rasterization_state: Some(RasterizationState::default()),
+                depth_stencil_state: Some(DepthStencilState::default()),
+                multisample_state: Some(MultisampleState::default()),
+                color_blend_state: Some(ColorBlendState::with_attachment_states(
+                    subpass.num_color_attachments(),
+                    ColorBlendAttachmentState::default(),
+                )),
+                subpass: Some(subpass.into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            },
+        )
+        .unwrap()
+    }
+
+    pub fn draw(&self) -> Arc<SecondaryAutoCommandBuffer> {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap().clone();
         let set = PersistentDescriptorSet::new(
             &self.descset_allocator,
@@ -189,11 +238,12 @@ where
                 },
                 WriteDescriptorSet::buffer(fs::FONT_DATA_BINDING, self.bitmap_buffer.clone()),
             ]),
+            [],
         )
         .unwrap();
 
         let mut builder = AutoCommandBufferBuilder::secondary(
-            &self.cmdbuf_allocator,
+            &*self.cmdbuf_allocator,
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
             CommandBufferInheritanceInfo {
@@ -205,13 +255,16 @@ where
 
         builder
             .bind_pipeline_graphics(self.pipeline.clone())
+            .unwrap()
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
                 self.pipeline.layout().clone(),
                 0,
                 set,
             )
+            .unwrap()
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
+            .unwrap()
             .draw(6, 1, 0, 0)
             .unwrap();
         builder.build().unwrap()
@@ -219,26 +272,18 @@ where
 
     pub fn regenerate(&mut self, dimensions: [f32; 2]) {
         log!("regenerating...");
-        let vs = vs::load(self.gfx_queue.device().clone()).unwrap();
-        let fs = fs::load(self.gfx_queue.device().clone()).unwrap();
-
-        let pipeline = GraphicsPipeline::start()
-            .render_pass(self.subpass.clone())
-            .vertex_input_state(VkVertex::per_vertex())
-            .input_assembly_state(InputAssemblyState::new())
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-                Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions,
-                    depth_range: 0.0..1.0,
-                },
-            ]))
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .build(self.gfx_queue.device().clone())
+        let device = self.gfx_queue.device();
+        let vs = vs::load(device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let fs = fs::load(device.clone())
+            .unwrap()
+            .entry_point("main")
             .unwrap();
 
+        let pipeline =
+            Self::make_pipeline(device.clone(), self.subpass.clone(), vs, fs, dimensions);
         self.pipeline = pipeline;
     }
 
@@ -274,10 +319,7 @@ where
     }
 }
 
-impl<Allocator> Write for UiSystem<Allocator>
-where
-    Arc<Allocator>: MemoryAllocator,
-{
+impl Write for UiSystem {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let mut len = 0;
 

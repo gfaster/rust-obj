@@ -31,10 +31,6 @@ layout(set = 0, binding = 3) uniform ShaderLight {
 
 layout(set = 1, binding = 4) uniform sampler2D s_tex;
 
-layout(set = 1, binding = 5) readonly buffer ClusterData {
-    uint data[];
-} clusterData;
-
 vec3 cluster_color(uint id) {
     /* adopted from this https://stackoverflow.com/a/12996028/7487237 */
     uint x = id;
@@ -88,7 +84,8 @@ void main()
     /*if (Mtl.use_sampler) {
         base_color = texture(s_tex, v_texCoord);
     } else*/ if (Mtl.use_clusters) {
-        base_color = vec4(cluster_color(clusterData.data[Mtl.tri_start + face_id]), 1.0f);
+        // base_color = vec4(cluster_color(clusterData.data[Mtl.tri_start + face_id]), 1.0f);
+        base_color = Mtl.base_diffuse;
     } else {
         base_color = Mtl.base_diffuse;
     }

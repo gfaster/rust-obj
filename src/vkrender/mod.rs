@@ -7,23 +7,23 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
 
-use image::Rgba32FImage;
-
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::command_buffer::allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo};
 use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, CommandBufferUsage, CopyImageToBufferInfo, RenderPassBeginInfo,
-    SubpassContents,
+    AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo,
+    SubpassBeginInfo, SubpassContents, SubpassEndInfo,
 };
-use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
+use vulkano::descriptor_set::allocator::{
+    StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo,
+};
 
 use vulkano::device::DeviceExtensions;
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
-use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, StorageImage, SwapchainImage};
 
+use vulkano::image::{Image, ImageType, ImageUsage};
 use vulkano::memory::allocator::{
-    AllocationCreateInfo, MemoryAllocator, MemoryUsage, StandardMemoryAllocator,
+    AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter, StandardMemoryAllocator,
 };
 
 use vulkano::pipeline::graphics::vertex_input;
@@ -32,21 +32,18 @@ use vulkano::pipeline::graphics::viewport::Viewport;
 use vulkano::render_pass::{Framebuffer, RenderPass, Subpass};
 
 use vulkano::swapchain::{
-    acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
-    SwapchainPresentInfo,
+    acquire_next_image, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo,
 };
-use vulkano::sync::{FlushError, GpuFuture};
-use vulkano::{render_pass, sync};
+use vulkano::sync::GpuFuture;
+use vulkano::{render_pass, sync, VulkanError};
 
 use winit::event::{DeviceEvent, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::ControlFlow;
 use winit::window::Window;
 
 use crate::controls::{mouse_move, Camera};
-use crate::glm::Vec3;
 
-use crate::mesh::{self, MeshData, MeshDataBuffs};
-use crate::vkrender::init::initialize_device;
+use crate::mesh::{self, MeshDataBuffs};
 use render_systems::object_system::ObjectSystem;
 
 use self::render_systems::ui_system::UiSystem;
@@ -79,6 +76,13 @@ pub struct VkVertex {
     tex: [f32; 2],
 }
 
+#[derive(BufferContents, vertex_input::Vertex, Clone, Copy)]
+#[repr(C)]
+pub struct PartLabel {
+    #[format(R32_UINT)]
+    part: [u32; 1],
+}
+
 impl From<mesh::Vertex> for VkVertex {
     fn from(value: mesh::Vertex) -> Self {
         Self {
@@ -93,29 +97,31 @@ impl MeshDataBuffs<VkVertex> {
     /// makes vertex and index subbuffers
     pub fn to_buffers(
         self,
-        allocator: &impl MemoryAllocator,
+        allocator: Arc<dyn MemoryAllocator>,
     ) -> (Subbuffer<[VkVertex]>, Subbuffer<[u32]>) {
         let vertex_buffer = Buffer::from_iter(
-            allocator,
+            allocator.clone(),
             BufferCreateInfo {
                 usage: BufferUsage::VERTEX_BUFFER,
                 ..Default::default()
             },
             AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
             self.verts,
         )
         .unwrap();
         let index_buffer = Buffer::from_iter(
-            allocator,
+            allocator.clone(),
             BufferCreateInfo {
                 usage: BufferUsage::INDEX_BUFFER,
                 ..Default::default()
             },
             AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
             self.indices,
@@ -140,13 +146,11 @@ pub fn display_model(m: mesh::MeshData) {
             .surface_capabilities(&surface, Default::default())
             .unwrap();
 
-        let image_format = Some(
-            device
-                .physical_device()
-                .surface_formats(&surface, Default::default())
-                .unwrap()[0]
-                .0,
-        );
+        let image_format = device
+            .physical_device()
+            .surface_formats(&surface, Default::default())
+            .unwrap()[0]
+            .0;
 
         let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
@@ -182,20 +186,19 @@ pub fn display_model(m: mesh::MeshData) {
     let mut last_many_frames: VecDeque<std::time::Instant> = Default::default();
 
     let render_pass = vulkano::single_pass_renderpass!(
-    device.clone(),
+        device.clone(),
         attachments: {
             color: {
-                load: Clear,
-                store: Store,
                 format: swapchain.image_format(),
                 samples: 1,
+                load_op: Clear,
+                store_op: Store,
             },
-
             depth: {
-                load: Clear,
-                store: DontCare,
                 format: vulkano::format::Format::D16_UNORM,
-                samples: 1
+                samples: 1,
+                load_op: Clear,
+                store_op: DontCare,
             }
         },
         pass: {
@@ -206,18 +209,30 @@ pub fn display_model(m: mesh::MeshData) {
     )
     .unwrap();
 
-    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
+    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(
+        device.clone(),
+        StandardDescriptorSetAllocatorCreateInfo::default(),
+    ));
     let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
         device.clone(),
-        Default::default(),
+        StandardCommandBufferAllocatorCreateInfo {
+            primary_buffer_count: 32,
+            secondary_buffer_count: 32,
+            ..Default::default()
+        },
     ));
+
+    let extent = {
+        let dim = swapchain.image_extent();
+        [dim[0] as f32, dim[1] as f32]
+    };
 
     // TODO: creating an object system creates the pipeline and the initialize_based_on_window call
     // regenerates it
     let mut object_system = ObjectSystem::new(
         queue.clone(),
         Subpass::from(render_pass.clone(), 0).unwrap(),
-        [0.0, 0.0],
+        extent,
         memory_allocator.clone(),
         command_buffer_allocator.clone(),
         descriptor_set_allocator.clone(),
@@ -226,7 +241,7 @@ pub fn display_model(m: mesh::MeshData) {
     let mut ui_system = UiSystem::new(
         queue.clone(),
         Subpass::from(render_pass.clone(), 0).unwrap(),
-        [0.0, 0.0],
+        extent,
         memory_allocator.clone(),
         command_buffer_allocator.clone(),
         descriptor_set_allocator.clone(),
@@ -235,13 +250,13 @@ pub fn display_model(m: mesh::MeshData) {
     object_system.register_object(m, glm::Mat4::identity(), true);
 
     let mut viewport = Viewport {
-        origin: [0.0, 0.0],
-        dimensions: [0.0, 0.0],
-        depth_range: 0.0..1.0,
+        offset: [0.0, 0.0],
+        extent: [0.0, 0.0],
+        depth_range: 0.0..=1.0,
     };
 
     let mut framebuffers = initialize_based_on_window(
-        &memory_allocator,
+        memory_allocator.clone(),
         &images,
         render_pass.clone(),
         &mut object_system,
@@ -305,14 +320,14 @@ pub fn display_model(m: mesh::MeshData) {
                         }) {
                             Ok(r) => r,
                             // can happen when resizing -> easy way to fix is just restart loop
-                            Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => return,
+                            // Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => return,
                             Err(e) => panic!("Failed to recreate swapchain: {e}"),
                         };
 
                     swapchain = new_swapchain;
 
                     let new_framebuffers = initialize_based_on_window(
-                        &memory_allocator,
+                        memory_allocator.clone(),
                         &new_images,
                         render_pass.clone(),
                         &mut object_system,
@@ -329,7 +344,7 @@ pub fn display_model(m: mesh::MeshData) {
                 let (image_index, suboptimal, acquire_future) =
                     match acquire_next_image(swapchain.clone(), None) {
                         Ok(r) => r,
-                        Err(AcquireError::OutOfDate) => {
+                        Err(vulkano::Validated::Error(VulkanError::OutOfDate)) => {
                             recreate_swapchain = true;
                             return;
                         }
@@ -372,17 +387,19 @@ pub fn display_model(m: mesh::MeshData) {
                                 framebuffers[image_index as usize].clone(),
                             )
                         },
-                        SubpassContents::SecondaryCommandBuffers,
+                        SubpassBeginInfo {
+                            contents: SubpassContents::SecondaryCommandBuffers,
+                            ..Default::default()
+                        },
                     )
                     .unwrap()
-                    .set_viewport(0, [viewport.clone()])
                     .execute_commands(object_system.draw(&cam))
                     .unwrap()
                     .execute_commands(ui_system.draw())
                     .unwrap();
 
                 // additional passes would go here
-                builder.end_render_pass().unwrap();
+                builder.end_render_pass(SubpassEndInfo::default()).unwrap();
 
                 let command_buffer = builder.build().unwrap();
 
@@ -402,7 +419,7 @@ pub fn display_model(m: mesh::MeshData) {
                     Ok(f) => {
                         previous_frame_end = Some(f.boxed());
                     }
-                    Err(FlushError::OutOfDate) => {
+                    Err(vulkano::Validated::Error(VulkanError::OutOfDate)) => {
                         recreate_swapchain = true;
                         previous_frame_end = Some(sync::now(device.clone()).boxed());
                     }
@@ -417,21 +434,21 @@ pub fn display_model(m: mesh::MeshData) {
 }
 
 fn initialize_based_on_window(
-    memory_allocator: &StandardMemoryAllocator,
-    images: &[Arc<SwapchainImage>],
+    memory_allocator: Arc<dyn MemoryAllocator>,
+    images: &[Arc<Image>],
     render_pass: Arc<RenderPass>,
-    object_system: &mut ObjectSystem<StandardMemoryAllocator>,
-    ui_system: &mut UiSystem<StandardMemoryAllocator>,
+    object_system: &mut ObjectSystem,
+    ui_system: &mut UiSystem,
     viewport: &mut Viewport,
     cam: &mut Camera,
 ) -> Vec<Arc<Framebuffer>> {
-    let dimensions_u32 = images[0].dimensions().width_height();
-    let dimensions = [dimensions_u32[0] as f32, dimensions_u32[1] as f32];
+    let extent: [u32; 3] = images[0].extent();
+    let dimensions = [extent[0] as f32, extent[1] as f32];
 
     *viewport = Viewport {
-        origin: [0.0, 0.0],
-        dimensions,
-        depth_range: 0.0..1.0,
+        offset: [0.0, 0.0],
+        extent: dimensions,
+        depth_range: 0.0..=1.0,
     };
 
     cam.aspect = dimensions[0] / dimensions[1];
@@ -440,7 +457,18 @@ fn initialize_based_on_window(
     ui_system.regenerate(dimensions);
 
     let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(memory_allocator, dimensions_u32, Format::D16_UNORM).unwrap(),
+        Image::new(
+            memory_allocator,
+            vulkano::image::ImageCreateInfo {
+                usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
+                format: Format::D16_UNORM,
+                extent,
+                image_type: ImageType::Dim2d,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap(),
     )
     .unwrap();
 
@@ -460,184 +488,6 @@ fn initialize_based_on_window(
         .collect::<Vec<_>>();
 
     framebuffers
-}
-
-pub fn depth_screenshots(m: MeshData, dim: (u32, u32), pos: &[Vec3]) -> Vec<String> {
-    // I'm using the Vulkano examples to learn here
-    // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/triangle.rs
-    //
-    // This example has some relevant information for offscreen rendering and saving
-    // https://github.com/vulkano-rs/vulkano/blob/0.33.X/examples/src/bin/msaa-renderpass.rs
-    //
-    // 2023-07-07: Learning about how best to architect rendering is interesting. I've used these
-    // pages to learn more. Not all of these were useful, but they were all interesting.
-    //
-    // https://vkguide.dev/docs/gpudriven/gpu_driven_engines/
-    // https://advances.realtimerendering.com/s2020/RenderingDoomEternal.pdf
-    // https://on-demand.gputechconf.com/gtc/2013/presentations/S3032-Advanced-Scenegraph-Rendering-Pipeline.pdf
-    let device_extensions = DeviceExtensions {
-        khr_storage_buffer_storage_class: true,
-        ..DeviceExtensions::empty()
-    };
-    let (device, queue) = initialize_device(device_extensions);
-
-    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-
-    const IMAGE_FORMAT: Format = Format::R32G32B32A32_SFLOAT;
-
-    let image = StorageImage::new(
-        &memory_allocator,
-        vulkano::image::ImageDimensions::Dim2d {
-            width: dim.0,
-            height: dim.1,
-            array_layers: 1,
-        },
-        IMAGE_FORMAT,
-        Some(queue.queue_family_index()),
-    )
-    .unwrap();
-
-    let transfer_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_DST,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            usage: MemoryUsage::Upload,
-            ..Default::default()
-        },
-        (0..dim.0
-            * dim.1
-            * (IMAGE_FORMAT.block_size().unwrap() / std::mem::size_of::<f32>() as u64) as u32)
-            .map(|_| 0f32),
-    )
-    .unwrap();
-
-    let render_pass = vulkano::single_pass_renderpass!(
-        device.clone(),
-        attachments: {
-            color: {
-            load: Clear,
-            store: Store,
-            format: IMAGE_FORMAT,
-            samples: 1,
-        },
-
-        depth: {
-            load: Clear,
-            store: DontCare,
-            format: vulkano::format::Format::D16_UNORM,
-            samples: 1
-        }
-    },
-        pass: {
-            color: [color],
-
-            depth_stencil: {depth},
-        }
-    )
-    .unwrap();
-
-    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
-    let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
-        device.clone(),
-        Default::default(),
-    ));
-
-    let object_subpass = Subpass::from(render_pass.clone(), 0).unwrap();
-    let mut object_system = ObjectSystem::new(
-        queue.clone(),
-        object_subpass,
-        [dim.0 as f32, dim.1 as f32],
-        memory_allocator.clone(),
-        command_buffer_allocator.clone(),
-        descriptor_set_allocator.clone(),
-    );
-
-    object_system.register_object(m, glm::identity(), false);
-
-    let framebuffer = {
-        let depth_buffer = ImageView::new_default(
-            AttachmentImage::transient(&memory_allocator, [dim.0, dim.1], Format::D16_UNORM)
-                .unwrap(),
-        )
-        .unwrap();
-
-        let view = ImageView::new_default(image.clone()).unwrap();
-        Framebuffer::new(
-            render_pass,
-            render_pass::FramebufferCreateInfo {
-                attachments: vec![view, depth_buffer],
-                ..Default::default()
-            },
-        )
-        .unwrap()
-    };
-
-    // initialization done!
-
-    let screenshot_format = image::ImageFormat::OpenExr;
-    let dir = screenshot_dir().unwrap();
-    let mut ret = vec![];
-    let mut cam = Camera::new(dim.0 as f32 / dim.1 as f32);
-    for (img_num, pos) in pos.iter().enumerate() {
-        cam.pos = *pos;
-
-        let mut builder = AutoCommandBufferBuilder::primary(
-            &command_buffer_allocator,
-            queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-
-        // we are allowed to not do a render pass if we use dynamic
-        builder
-            .begin_render_pass(
-                RenderPassBeginInfo {
-                    clear_values: vec![Some([1.0, 1.0, 1.0, 1.0].into()), Some(1.0.into())],
-                    ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
-                },
-                SubpassContents::SecondaryCommandBuffers,
-            )
-            .unwrap();
-
-        builder.execute_commands(object_system.draw(&cam)).unwrap();
-
-        builder
-            .end_render_pass()
-            .unwrap()
-            .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(
-                image.clone(),
-                transfer_buffer.clone(),
-            ))
-            .unwrap();
-
-        let command_buffer = builder.build().unwrap();
-
-        let future = sync::now(device.clone())
-            .then_execute(queue.clone(), command_buffer)
-            .unwrap()
-            .then_signal_fence_and_flush()
-            .unwrap();
-
-        future.wait(None).unwrap();
-
-        let buffer_content = transfer_buffer.read().unwrap();
-        let file = format!(
-            "{}/{}.{}",
-            dir,
-            img_num,
-            screenshot_format.extensions_str()[0]
-        );
-        Rgba32FImage::from_raw(dim.0, dim.1, buffer_content.to_vec())
-            .unwrap()
-            .save_with_format(&file, screenshot_format)
-            .unwrap();
-        ret.push(file)
-    }
-
-    ret
 }
 
 pub fn screenshot_dir() -> Result<String, Box<dyn std::error::Error>> {

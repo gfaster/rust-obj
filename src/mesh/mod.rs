@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 
 pub mod color;
 pub mod mtl;
-pub mod primative;
+pub mod primitive;
 mod tri;
 
 pub use glm::{Vec2, Vec3};
@@ -55,6 +55,7 @@ where
 {
     pub verts: Vec<Vtx>,
     pub indices: Vec<u32>,
+    pub numbering: Vec<u32>,
 }
 
 impl<Vtx> From<MeshData> for MeshDataBuffs<Vtx>
@@ -66,8 +67,12 @@ where
         let mut ret: Self = Self {
             verts: vec![],
             indices: vec![],
+            numbering: vec![],
         };
         for (i, vert) in value.f.iter().enumerate() {
+            if i % 3 == 0 {
+                ret.numbering.push(ret.numbering.len() as u32);
+            }
             match added.get(&vert) {
                 Some(&idx) => ret.indices.push(idx as u32),
                 None => {
