@@ -7,7 +7,7 @@ layout(location = 1) in vec3 v_fragNorm;
 layout(location = 2) in vec2 v_texCoord;
 layout(location = 3) in float v_depth;
 layout(location = 4) in vec3 v_camPos;
-layout(location = 5) flat in int face_id;
+layout(location = 5) flat in uint v_part;
 
 const float gamma = 1.0;
 
@@ -59,8 +59,9 @@ vec4 diffuse(vec3 base_color) {
     float lambertian = max(dot(norm, light_dir), 0.0f);
 
     vec3 diff_color = lambertian * base_color * Light.light_strength;
-    vec3 spec_color = pow(spec, Mtl.base_specular_factor) * Mtl.base_specular.rgb;
-    vec3 ambient_color = Mtl.base_ambient.rgb * Light.ambient_strength;
+    vec3 spec_color = pow(spec, Mtl.base_specular_factor) * Mtl.base_specular.rgb * 0.05;
+    // vec3 ambient_color = Mtl.base_ambient.rgb * Light.ambient_strength;
+    vec3 ambient_color = base_color * Light.ambient_strength;
 
     return vec4(diff_color + spec_color + ambient_color, 1.0f); 
 }
@@ -84,8 +85,8 @@ void main()
     /*if (Mtl.use_sampler) {
         base_color = texture(s_tex, v_texCoord);
     } else*/ if (Mtl.use_clusters) {
-        // base_color = vec4(cluster_color(clusterData.data[Mtl.tri_start + face_id]), 1.0f);
-        base_color = Mtl.base_diffuse;
+        base_color = vec4(cluster_color(v_part), 1.0f);
+        // base_color = Mtl.base_diffuse;
     } else {
         base_color = Mtl.base_diffuse;
     }

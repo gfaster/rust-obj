@@ -8,10 +8,12 @@ use std::io::Write;
 use std::sync::Arc;
 
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
-use vulkano::command_buffer::allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo};
+use vulkano::command_buffer::allocator::{
+    StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo,
+};
 use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo,
-    SubpassBeginInfo, SubpassContents, SubpassEndInfo,
+    AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassBeginInfo,
+    SubpassContents, SubpassEndInfo,
 };
 use vulkano::descriptor_set::allocator::{
     StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo,
@@ -80,7 +82,7 @@ pub struct VkVertex {
 #[repr(C)]
 pub struct PartLabel {
     #[format(R32_UINT)]
-    part: [u32; 1],
+    part: u32,
 }
 
 impl From<mesh::Vertex> for VkVertex {
@@ -94,11 +96,7 @@ impl From<mesh::Vertex> for VkVertex {
 }
 
 impl MeshDataBuffs<VkVertex> {
-    /// makes vertex and index subbuffers
-    pub fn to_buffers(
-        self,
-        allocator: Arc<dyn MemoryAllocator>,
-    ) -> (Subbuffer<[VkVertex]>, Subbuffer<[u32]>) {
+    pub fn to_buffers(self, allocator: Arc<dyn MemoryAllocator>) -> Subbuffer<[VkVertex]> {
         let vertex_buffer = Buffer::from_iter(
             allocator.clone(),
             BufferCreateInfo {
@@ -113,21 +111,7 @@ impl MeshDataBuffs<VkVertex> {
             self.verts,
         )
         .unwrap();
-        let index_buffer = Buffer::from_iter(
-            allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::INDEX_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            self.indices,
-        )
-        .unwrap();
-        (vertex_buffer, index_buffer)
+        vertex_buffer
     }
 }
 

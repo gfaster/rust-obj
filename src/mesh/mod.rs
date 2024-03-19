@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 pub mod color;
 pub mod mtl;
@@ -54,41 +54,19 @@ where
     Vtx: std::convert::From<Vertex>,
 {
     pub verts: Vec<Vtx>,
-    pub indices: Vec<u32>,
-    pub numbering: Vec<u32>,
 }
 
-impl<Vtx> From<MeshData> for MeshDataBuffs<Vtx>
+impl<Vtx> From<&MeshData> for MeshDataBuffs<Vtx>
 where
     Vtx: std::convert::From<Vertex>,
 {
-    fn from(value: MeshData) -> Self {
-        let mut added: HashMap<&VertexIndexed, usize> = Default::default();
-        let mut ret: Self = Self {
-            verts: vec![],
-            indices: vec![],
-            numbering: vec![],
-        };
-        for (i, vert) in value.f.iter().enumerate() {
-            if i % 3 == 0 {
-                ret.numbering.push(ret.numbering.len() as u32);
-            }
-            match added.get(&vert) {
-                Some(&idx) => ret.indices.push(idx as u32),
-                None => {
-                    added.insert(vert, ret.verts.len());
-                    ret.indices.push(ret.verts.len() as u32);
-                    ret.verts.push(
-                        value
-                            .get_vertex(i)
-                            .expect("indexed wrong in enumeration")
-                            .into(),
-                    );
-                }
-            };
+    fn from(value: &MeshData) -> Self {
+        let mut verts = Vec::with_capacity(value.f.len());
+        for vtx in value.vertices() {
+            verts.push(vtx.into());
         }
 
-        ret
+        MeshDataBuffs { verts }
     }
 }
 
@@ -354,6 +332,10 @@ impl MeshData {
         }
     }
 
+    pub fn vertices(&self) -> MeshVertexIterator<'_> {
+        MeshVertexIterator { mesh: self, idx: 0 }
+    }
+
     pub fn tri_indices(&self) -> impl Iterator<Item = [u32; 3]> + '_ {
         self.f
             .chunks_exact(3)
@@ -428,7 +410,7 @@ impl<'a> Iterator for MeshTriIterator<'a> {
     }
 }
 
-struct MeshVertexIterator<'a> {
+pub struct MeshVertexIterator<'a> {
     mesh: &'a MeshData,
     idx: usize,
 }

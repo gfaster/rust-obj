@@ -22,7 +22,6 @@ use vulkano::command_buffer::{
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::Device;
 use vulkano::format::Format;
-use vulkano::image::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::image::view::ImageView;
 use vulkano::image::{Image, ImageCreateInfo, ImageType, ImageUsage};
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator};
@@ -51,6 +50,7 @@ use vulkano::{
 use crate::mesh::{MeshData, MeshDataBuffs};
 use crate::partition;
 use crate::util::CellMap;
+use crate::vkrender::PartLabel;
 use crate::{
     controls::Camera,
     mesh::{mtl::Material, MeshMeta},
@@ -162,7 +162,8 @@ impl ObjectSystem {
             memory_allocator.clone(),
             SubbufferAllocatorCreateInfo {
                 buffer_usage: BufferUsage::UNIFORM_BUFFER,
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
         );
@@ -172,7 +173,8 @@ impl ObjectSystem {
             SubbufferAllocatorCreateInfo {
                 buffer_usage: BufferUsage::VERTEX_BUFFER,
                 arena_size: config.vertex_arena_size,
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
         );
@@ -182,7 +184,8 @@ impl ObjectSystem {
             SubbufferAllocatorCreateInfo {
                 buffer_usage: BufferUsage::INDEX_BUFFER,
                 arena_size: config.index_arena_size,
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
         );
@@ -218,7 +221,7 @@ impl ObjectSystem {
     ) -> Arc<GraphicsPipeline> {
         debug_assert!(extent[0] > 0.0);
         debug_assert!(extent[1] > 0.0);
-        let vertex_input_state = [VkVertex::per_vertex()]
+        let vertex_input_state = [VkVertex::per_vertex(), PartLabel::per_vertex()]
             .definition(&vs_entry.info().input_interface)
             .unwrap();
         let stages = [
@@ -292,11 +295,11 @@ impl ObjectSystem {
         });
         self.unloaded_texture_count.set(0);
 
-        let sampler = Sampler::new(
-            self.gfx_queue.device().clone(),
-            SamplerCreateInfo::simple_repeat_linear(),
-        )
-        .unwrap();
+        // let sampler = Sampler::new(
+        //     self.gfx_queue.device().clone(),
+        //     SamplerCreateInfo::simple_repeat_linear(),
+        // )
+        // .unwrap();
 
         let mut builder = AutoCommandBufferBuilder::secondary(
             &*self.cmdbuf_allocator,
@@ -322,7 +325,6 @@ impl ObjectSystem {
 
         for object in &self.objects {
             let (s_mat, s_mtl) = generate_uniforms_1(&object);
-            let s_part = object.partition.clone();
             let set_1 = PersistentDescriptorSet::new(
                 &self.descset_allocator,
                 layout_1.clone(),
@@ -331,18 +333,15 @@ impl ObjectSystem {
                     (s_mat, vs::MAT_BINDING),
                     (s_mtl, fs::MTL_BINDING)
                 }
-                .into_iter()
-                // .chain([WriteDescriptorSet::image_view_sampler(
-                //     fs::SAMPLER_BINDING,
-                //     object.texture.clone(),
-                //     sampler.clone(),
-                // ),])
-                // .chain([WriteDescriptorSet::buffer(fs::CLUSTER_BINDING, s_part)]),
-                ,
+                .into_iter(), // .chain([WriteDescriptorSet::image_view_sampler(
+                              //     fs::SAMPLER_BINDING,
+                              //     object.texture.clone(),
+                              //     sampler.clone(),
+                              // ),])
+                              // .chain([WriteDescriptorSet::buffer(fs::CLUSTER_BINDING, s_part)]),
                 [],
             )
             .unwrap_or_else(|e| panic!("{e:?}"));
-
             builder
                 .bind_descriptor_sets(
                     PipelineBindPoint::Graphics,
@@ -351,11 +350,9 @@ impl ObjectSystem {
                     set_1,
                 )
                 .unwrap()
-                .bind_vertex_buffers(0, object.vertices.clone())
+                .bind_vertex_buffers(0, (object.vertices.clone(), object.partition.clone()))
                 .unwrap()
-                .bind_index_buffer(object.indices.clone())
-                .unwrap()
-                .draw_indexed(object.indices.len() as u32, 1, 0, 0, 0)
+                .draw(object.len, 1, object.start_idx, 0)
                 .unwrap();
         }
         builder.build().unwrap()
@@ -396,7 +393,8 @@ impl ObjectSystem {
         let part: Option<Arc<[i32]>>;
         if do_part {
             if let Some(succ) = partition::partition_mesh(&object) {
-                part = Some(succ.into());
+                let per_vtx: Arc<[_]> = succ.into_iter().flat_map(|i| [i, i, i]).collect();
+                part = Some(per_vtx);
             } else {
                 log!("Parition failed");
                 part = None
@@ -405,21 +403,13 @@ impl ObjectSystem {
             part = None;
         }
         let meta = object.get_meta();
-        let mesh_buffs: MeshDataBuffs<VkVertex> = object.into();
+        let mesh_buffs: MeshDataBuffs<VkVertex> = (&object).into();
 
         let vertices = self
             .vertex_buffer
             .allocate_slice(mesh_buffs.verts.len() as vulkano::DeviceSize)
             .unwrap();
-        let mut indices = self
-            .index_buffer
-            .allocate_slice(mesh_buffs.indices.len() as vulkano::DeviceSize)
-            .unwrap();
         vertices.write().unwrap().copy_from_slice(&mesh_buffs.verts);
-        indices
-            .write()
-            .unwrap()
-            .copy_from_slice(&mesh_buffs.indices);
 
         let part = Buffer::from_iter(
             self.memory_allocator.clone(),
@@ -435,6 +425,9 @@ impl ObjectSystem {
             part.unwrap().into_iter().copied(),
         )
         .unwrap();
+
+        assert_eq!(std::mem::size_of::<u32>(), std::mem::size_of::<PartLabel>());
+        let part: Subbuffer<[PartLabel]> = part.reinterpret();
 
         let mut upload_cmdbuf = self.upload_cmdbuf.take().unwrap_or_else(|| {
             AutoCommandBufferBuilder::primary(
@@ -492,29 +485,25 @@ impl ObjectSystem {
 
             self.unloaded_texture_count.map_cell(|x| x + 1);
 
-            let mid = material.0 as vulkano::DeviceSize * 3;
-            // dbg!(mid - prev);
-            let split_indices;
-            if (mid - prev) < indices.len() {
-                (split_indices, indices) = indices.split_at(mid - prev);
-                // (split_indices, indices) = indices.split_at(mid);
-            } else {
-                split_indices = indices.clone();
-            }
-            // dbg!(&split_indices.offset());
-            // dbg!(&split_indices.len());
-            prev = mid;
+            let mid = material.0 * 3;
 
             self.objects.push(ObjectInstance {
+                len: mid - prev,
+                start_idx: prev,
                 vertices: vertices.clone(),
-                indices: split_indices,
                 partition: part.clone(),
                 meta: meta.clone(),
                 mtl_idx,
                 transform,
                 texture: ImageView::new_default(image).unwrap(),
             });
+            prev = mid;
         }
+
+        // for idx in first_idx..self.objects.len() {
+        //     let next = self.objects.get(idx + 1).map_or_else(|| self.objects[idx].vertices.len() as u32, |x| x.start_idx);
+        //     self.objects[idx].len = next - self.objects[idx].start_idx;
+        // }
 
         self.upload_cmdbuf = Some(upload_cmdbuf).into();
 
@@ -528,9 +517,11 @@ impl ObjectSystem {
 
 #[derive(Clone)]
 pub struct ObjectInstance {
+    /// index of first vertex
+    start_idx: u32,
+    len: u32,
     vertices: Subbuffer<[VkVertex]>,
-    indices: Subbuffer<[u32]>,
-    partition: Subbuffer<[i32]>,
+    partition: Subbuffer<[PartLabel]>,
     meta: MeshMeta,
     mtl_idx: usize,
     texture: Arc<ImageView>,
@@ -538,8 +529,8 @@ pub struct ObjectInstance {
 }
 
 fn generate_uniforms_0(cam: &Camera) -> (fs::ShaderLight, vs::ShaderCamAttr) {
-    let near = 1.0;
-    let far = 4.0;
+    let near = 0.1;
+    let far = 5.0;
     let projection_matrix = glm::perspective(cam.aspect, 1.0, near, far);
 
     let cam_attr = vs::ShaderCamAttr {
@@ -552,8 +543,8 @@ fn generate_uniforms_0(cam: &Camera) -> (fs::ShaderLight, vs::ShaderCamAttr) {
 
     let light = fs::ShaderLight {
         light_pos: glm::vec3(10.0, 10.0, 0.0),
-        ambient_strength: 0.2,
-        light_strength: 10.0,
+        ambient_strength: 0.7,
+        light_strength: 3.0,
     };
 
     (light, cam_attr)
@@ -561,7 +552,7 @@ fn generate_uniforms_0(cam: &Camera) -> (fs::ShaderLight, vs::ShaderCamAttr) {
 
 pub fn generate_uniforms_1(instance: &ObjectInstance) -> (vs::ShaderMatBuffer, fs::ShaderMtl) {
     let meta = &instance.meta;
-    let scale = 1.5 / meta.normalize_factor;
+    let scale = 1.3 / meta.normalize_factor;
     let center = meta.centroid;
     let transform = glm::Mat4::from([
         [scale, 0.0, 0.0, 0.0],
