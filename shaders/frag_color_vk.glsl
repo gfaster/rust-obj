@@ -55,11 +55,11 @@ vec4 diffuse(vec3 base_color) {
     vec3 light_dir = normalize(Light.light_pos - v_fragPos);
     vec3 reflect_dir = reflect(-light_dir, norm);
 
-    float spec = max(dot(norm, reflect_dir), 0.0f);
-    float lambertian = max(dot(norm, light_dir), 0.0f);
+    float spec = max(dot(norm, reflect_dir), 0.6f);
+    float lambertian = max(dot(norm, light_dir), 0.6f);
 
     vec3 diff_color = lambertian * base_color * Light.light_strength;
-    vec3 spec_color = pow(spec, Mtl.base_specular_factor) * Mtl.base_specular.rgb * 0.05;
+    vec3 spec_color = pow(spec, Mtl.base_specular_factor) * Mtl.base_specular.rgb * 0.01;
     // vec3 ambient_color = Mtl.base_ambient.rgb * Light.ambient_strength;
     vec3 ambient_color = base_color * Light.ambient_strength;
 
